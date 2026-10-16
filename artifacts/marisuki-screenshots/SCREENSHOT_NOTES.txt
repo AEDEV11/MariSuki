@@ -1,0 +1,8 @@
+MariSuki POS screen captures
+Captured: 2026-10-15 to 2026-10-16
+
+Post-redesign captures include the 1280x800 dp Pixel Tablet AVD cashier, products, More tools, reports, utang, add/edit product forms, login, Settings, Staff, and permissions. Images 35–46 are later tablet captures, including dark mode. Image 46 was captured before the final Inventory permission visibility fix. Image 47 is the dark login rendered by the final APK after its successful installation. The 360x800 dp compact-width cashier render is an AVD viewport override, not a physical phone capture. No product form was saved during capture.
+
+Captures 00–23 are the earlier screen inventory; they are not proof those screens were visually rechecked after this redesign. Capture 24 is empty and excluded from the archive. The stock-unit popup capture is incomplete.
+
+AVD limitation: Android produced repeated launcher/system ANRs and MariSuki input-focus ANRs during popup/dialog transitions under high emulator CPU pressure. The final APK reached login, but the AVD closed the app during a subsequent keyboard/login interaction. The editor rendered on the prior build, but stock-unit popup interaction and final-build post-login navigation still need verification on a less-loaded emulator or physical tablet. These captures do not cover every dialog, setup step, or the full 360/393/600/800/1024/1280 matrix, portrait, and font scaling. Printer hardware was not tested.
