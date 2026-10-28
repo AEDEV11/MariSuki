@@ -179,6 +179,16 @@ class AuthRepository(
         val account = dao.staffAccount(accountId) ?: run {
             throw AuthException(AuthFailure.InvalidCredentials)
         }
+        authenticateLogin(account, credential)
+    }
+
+    suspend fun loginByUsername(username: String, credential: String): AccountSummary = authMutex.withLock {
+        val account = dao.staffAccountByUsername(normalizeUsername(username.trim()))
+            ?: throw AuthException(AuthFailure.InvalidCredentials)
+        authenticateLogin(account, credential)
+    }
+
+    private suspend fun authenticateLogin(account: StaffAccountEntity, credential: String): AccountSummary {
         if (!account.enabled) throw AuthException(AuthFailure.AccountDisabled)
         val lockKey = "LOGIN:${account.id}"
         ensureNotLocked(lockKey)
@@ -191,7 +201,7 @@ class AuthRepository(
         }
         dao.clearAuthAttemptState(lockKey)
         createSession(account)
-        account.toSummary()
+        return account.toSummary()
     }
 
     suspend fun logout() {

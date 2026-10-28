@@ -55,6 +55,13 @@ class PosRepository(
     fun observeCustomerLedger(customerId: String): Flow<List<CustomerLedgerEntryEntity>> =
         securedList(PosPermission.VIEW_CUSTOMER_BALANCES, dao.observeCustomerLedger(customerId))
     fun observeSales(): Flow<List<SaleSummary>> = securedList(PosPermission.VIEW_SALES_HISTORY, dao.observeSaleSummaries())
+    fun observeSaleHistoryDetails(saleId: String) = securedScalar(
+        PosPermission.VIEW_SALES_HISTORY, dao.observeSaleHistoryDetails(saleId), null,
+    )
+    suspend fun saleCashierName(accountId: String): String? {
+        requirePermission(PosPermission.VIEW_SALES_HISTORY)
+        return dao.saleCashierName(accountId)
+    }
     fun observeLowStockCount(): Flow<Int> = securedScalar(PosPermission.VIEW_STOCK, dao.observeLowStockCount(), 0)
     fun observeSuppliers(): Flow<List<SupplierEntity>> = securedList(PosPermission.MANAGE_SUPPLIERS, dao.observeSuppliers())
     fun observeStockDeliveries(): Flow<List<StockDeliveryEntity>> = securedList(PosPermission.MANAGE_SUPPLIERS, dao.observeStockDeliveries())
@@ -311,10 +318,78 @@ class PosRepository(
         dao.insertAudit(AuditLogEntity(UUID.randomUUID().toString(), "CUSTOMER_PAYMENT", customerId, "Utang payment recorded", now, actor.accountId))
     }
 
+    fun observeCategoryNames() = securedList(PosPermission.VIEW_PRODUCTS, dao.observeCategoryNames())
+    fun observeUnitNames(selling: Boolean): Flow<List<String>> {
+        val prefix = if (selling) "catalog.selling_unit." else "catalog.stock_unit."
+        val existing = if (selling) dao.observeSellingUnitNames() else dao.observeStockUnitNames()
+        val defaults = if (selling) listOf("Pack", "Case", "Box", "Dozen", "Sack") else listOf("Piece", "Pack", "Case", "Kilo", "Gram", "Liter", "Milliliter", "Bottle", "Can", "Box", "Bag", "Sachet", "Loaf", "Dozen")
+        return securedList(PosPermission.VIEW_PRODUCTS, combine(existing, dao.observeCatalogLabels(prefix)) { used, saved ->
+            (defaults + used + saved).distinctBy { it.lowercase(java.util.Locale.ROOT) }.sortedBy { it.lowercase(java.util.Locale.ROOT) }
+        })
+    }
+
+    suspend fun saveCatalogChoice(kind: String, name: String): String = database.withTransaction {
+        requirePermission(PosPermission.VIEW_PRODUCTS)
+        try { requirePermission(PosPermission.ADD_PRODUCT) } catch (_: AuthException) { requirePermission(PosPermission.EDIT_PRODUCT) }
+        val label = name.trim()
+        if (label.isBlank() || label.length > 80 || label.any(Char::isISOControl)) throw PosError.InvalidProduct
+        when (kind) {
+            "category" -> dao.categoryByName(label)?.name ?: label.also { dao.insertCategory(CategoryEntity(it, clock(), UUID.randomUUID().toString())) }
+            "stock", "selling" -> {
+                val key = "catalog.${if (kind == "stock") "stock" else "selling"}_unit.${label.lowercase(java.util.Locale.ROOT)}"
+                dao.catalogSetting(key) ?: label.also { dao.saveCatalogSetting(AppSettingEntity(key, it)) }
+            }
+            else -> throw PosError.InvalidProduct
+        }
+    }
+
+    suspend fun reviewProductImport(preview: com.aesprt.marisuki.data.importing.ImportPreview): com.aesprt.marisuki.data.importing.ImportPreview {
+        requirePermission(PosPermission.ADD_PRODUCT)
+        val canCost = try { requirePermission(PosPermission.EDIT_PURCHASE_COST); true } catch (_: AuthException) { false }
+        val canStock = try { requirePermission(PosPermission.ADD_STOCK); true } catch (_: AuthException) { false }
+        val existing = preview.rows.mapNotNull { it.input?.barcode }.distinct().filter { dao.barcodeExists(it) }.toSet()
+        return preview.copy(rows = preview.rows.map { row ->
+            val added = mutableListOf<com.aesprt.marisuki.data.importing.ImportIssue>()
+            if (row.input?.barcode in existing) added += com.aesprt.marisuki.data.importing.ImportIssue(row.row, "Barcode", com.aesprt.marisuki.data.importing.ImportProblem.DUPLICATE_BARCODE)
+            if (!canCost && (row.input?.purchaseCostCentavos ?: 0) > 0) added += com.aesprt.marisuki.data.importing.ImportIssue(row.row, "Purchase cost", com.aesprt.marisuki.data.importing.ImportProblem.PERMISSION)
+            if (!canStock && (row.input?.initialStockMilliUnits ?: 0) > 0) added += com.aesprt.marisuki.data.importing.ImportIssue(row.row, "Starting stock", com.aesprt.marisuki.data.importing.ImportProblem.PERMISSION)
+            row.copy(issues = (row.issues + added).distinct())
+        })
+    }
+
+    suspend fun importProducts(inputs: List<NewProduct>): com.aesprt.marisuki.data.importing.ImportResult = database.withTransaction {
+        val actor = requirePermission(PosPermission.ADD_PRODUCT)
+        if (inputs.any { it.purchaseCostCentavos > 0 }) requirePermission(PosPermission.EDIT_PURCHASE_COST)
+        if (inputs.any { it.initialStockMilliUnits > 0 }) requirePermission(PosPermission.ADD_STOCK)
+        if (inputs.isEmpty() || inputs.size > com.aesprt.marisuki.data.importing.ProductImport.MAX_ROWS) throw PosError.InvalidProduct
+        val canonical = java.io.ByteArrayOutputStream()
+        java.io.DataOutputStream(canonical).use { output ->
+            output.writeInt(inputs.size)
+            inputs.sortedBy { it.toString() }.forEach { product ->
+                output.writeUTF(product.name.trim()); output.writeUTF(product.barcode?.trim().orEmpty()); output.writeUTF(product.categoryName?.trim().orEmpty())
+                output.writeUTF(product.baseUnitLabel.trim()); output.writeLong(product.baseUnitPriceCentavos); output.writeLong(product.purchaseCostCentavos)
+                output.writeLong(product.initialStockMilliUnits); output.writeLong(product.minimumStockMilliUnits); output.writeBoolean(product.wholeBaseUnitsOnly)
+                output.writeUTF(product.imageFileName.orEmpty()); output.writeInt(product.extraUnits.size)
+                product.extraUnits.forEach { unit -> output.writeUTF(unit.label.trim()); output.writeLong(unit.baseQuantityMilliUnits); output.writeLong(unit.priceCentavos); output.writeBoolean(unit.wholeQuantityOnly) }
+            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256").digest(canonical.toByteArray()).joinToString("") { "%02x".format(it) }
+        val key = "catalog.import.$digest"
+        val previous = dao.catalogSetting(key)
+        if (previous != null) return@withTransaction com.aesprt.marisuki.data.importing.ImportResult(previous.toInt(), true)
+        inputs.forEach { insertProductRecord(it, actor) }
+        dao.saveCatalogSetting(AppSettingEntity(key, inputs.size.toString()))
+        com.aesprt.marisuki.data.importing.ImportResult(inputs.size, false)
+    }
+
     suspend fun createProduct(input: NewProduct): String = database.withTransaction {
         val actor = requirePermission(PosPermission.ADD_PRODUCT)
         if (input.purchaseCostCentavos > 0) requirePermission(PosPermission.EDIT_PURCHASE_COST)
         if (input.initialStockMilliUnits > 0) requirePermission(PosPermission.ADD_STOCK)
+        insertProductRecord(input, actor)
+    }
+
+    private suspend fun insertProductRecord(input: NewProduct, actor: AuthenticatedActor): String {
         val name = input.name.trim()
         val barcode = input.barcode?.trim()?.ifBlank { null }
         val baseLabel = input.baseUnitLabel.trim()
@@ -371,8 +446,9 @@ class PosRepository(
                 ),
             )
         }
+        rememberProductUnitNames(input)
         dao.insertAudit(AuditLogEntity(UUID.randomUUID().toString(), "PRODUCT_CREATED", id, "Product created", now, actor.accountId))
-        id
+        return id
     }
 
     suspend fun requestPriceChangeApproval(productId: String, input: NewProduct): PriceApprovalPreview? {
@@ -447,6 +523,9 @@ class PosRepository(
         if (dao.updateProduct(id, name, barcode, categoryId, baseLabel, input.baseUnitPriceCentavos, effectiveCost, input.minimumStockMilliUnits, input.wholeBaseUnitsOnly, input.imageFileName, now) == 0) {
             throw PosError.ProductNotFound
         }
+        rememberUnitName(false, existing.baseUnitLabel)
+        originalUnits.filterNot { it.label.equals(existing.baseUnitLabel, ignoreCase = true) }.forEach { rememberUnitName(true, it.label) }
+        rememberProductUnitNames(input)
         dao.deleteProductUnits(id)
         dao.insertProductUnits(
             listOf(ProductUnitEntity(UUID.randomUUID().toString(), id, baseLabel, SCALE, input.baseUnitPriceCentavos, input.wholeBaseUnitsOnly)) +
@@ -460,6 +539,17 @@ class PosRepository(
             if (approvalId != null) runCatching { actionApproval?.finishOwnerApproval(approvalId, success = false, resultDetails = error.message) }
             throw error
         }
+    }
+
+    private suspend fun rememberProductUnitNames(input: NewProduct) {
+        rememberUnitName(false, input.baseUnitLabel)
+        input.extraUnits.forEach { rememberUnitName(true, it.label) }
+    }
+
+    private suspend fun rememberUnitName(selling: Boolean, name: String) {
+        val label = name.trim()
+        val key = "catalog.${if (selling) "selling" else "stock"}_unit.${label.lowercase(java.util.Locale.ROOT)}"
+        if (dao.catalogSetting(key) == null) dao.saveCatalogSetting(AppSettingEntity(key, label))
     }
 
     private fun requestedUnits(input: NewProduct): List<Triple<String, Long, Long>> =
@@ -501,7 +591,7 @@ class PosRepository(
     }
 
     suspend fun setProductFavorite(id: String, favorite: Boolean) = database.withTransaction {
-        val actor = requirePermission(PosPermission.EDIT_PRODUCT)
+        val actor = requirePermission(PosPermission.VIEW_PRODUCTS)
         val now = clock()
         if (dao.updateFavorite(id, favorite, now) == 0) throw PosError.ProductNotFound
         dao.insertAudit(AuditLogEntity(UUID.randomUUID().toString(), "PRODUCT_FAVORITE_CHANGED", id, "Favorite set to $favorite", now, actor.accountId))

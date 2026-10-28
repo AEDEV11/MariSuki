@@ -276,8 +276,56 @@ class PosRepositoryInstrumentedTest {
         assertEquals(0L, database.posDao().observeSoldCostTotal(0, Long.MAX_VALUE).first())
         assertEquals(2_500L, database.posDao().observeRefundTotal("CASH", 0, Long.MAX_VALUE).first())
         assertEquals(2_500L, database.posDao().observePaymentTotal("CASH", 0, Long.MAX_VALUE).first())
+        val summary = repository.observeSales().first().single()
+        assertTrue(summary.hasRefund)
+        assertTrue(summary.fullyRefunded)
+        assertEquals(2_500L, summary.refundedCentavos)
+        val history = repository.observeSaleHistoryDetails(sale.saleId).first()!!
+        assertEquals(1, history.refunds.size)
+        assertEquals("Damaged packaging", history.refunds.single().refund.reason)
+        assertEquals("CASH", history.refunds.single().refund.refundMethod)
+        assertEquals(saleItem.id, history.refunds.single().items.single().saleItemId)
+        assertTrue(history.refunds.single().items.single().restock)
+        assertEquals(2_500L, history.payments.single().amountAppliedCentavos)
         val secondRefund = runCatching { repository.refundSale(command.copy(idempotencyKey = "refund-002")) }.exceptionOrNull()
         assertTrue(secondRefund is PosError.InvalidQuantity)
+    }
+
+    @Test
+    fun saleHistoryTracksPartialAndMultipleRefundsWithReasonsAndQuantities() = runBlocking {
+        val productId = createCannedProduct(stockPieces = 3)
+        val unit = repository.productUnits(productId).single { it.baseQuantityMilliUnits == PosRepository.SCALE }
+        val sale = repository.checkout(CheckoutCommand(
+            idempotencyKey = "history-sale",
+            lines = listOf(CartLineInput(productId, unit.id, 2 * PosRepository.SCALE)),
+            tenders = listOf(TenderInput(PaymentMethod.CASH, 5_000)),
+        ))
+        val original = repository.observeSales().first().single()
+        assertFalse(original.hasRefund)
+        val item = repository.saleItems(sale.saleId).single()
+        repository.refundSale(RefundCommand(
+            "history-return-1", sale.saleId, "Damaged can",
+            listOf(RefundLineInput(item.id, PosRepository.SCALE, restock = false)), RefundMethod.CASH,
+        ))
+        val partial = repository.observeSales().first().single()
+        assertTrue(partial.hasRefund)
+        assertFalse(partial.fullyRefunded)
+        assertEquals(2_500L, partial.refundedCentavos)
+        val firstHistory = repository.observeSaleHistoryDetails(sale.saleId).first()!!
+        assertEquals("Damaged can", firstHistory.refunds.single().refund.reason)
+        assertEquals(PosRepository.SCALE, firstHistory.refunds.single().items.single().quantityMilliUnits)
+        assertFalse(firstHistory.refunds.single().items.single().restock)
+        repository.refundSale(RefundCommand(
+            "history-return-2", sale.saleId, "Wrong item",
+            listOf(RefundLineInput(item.id, PosRepository.SCALE, restock = true)), RefundMethod.GCASH,
+        ))
+        val full = repository.observeSales().first().single()
+        assertTrue(full.fullyRefunded)
+        assertEquals(5_000L, full.refundedCentavos)
+        val history = repository.observeSaleHistoryDetails(sale.saleId).first()!!
+        assertEquals(setOf("Damaged can", "Wrong item"), history.refunds.map { it.refund.reason }.toSet())
+        assertEquals(setOf("CASH", "GCASH"), history.refunds.map { it.refund.refundMethod }.toSet())
+        assertEquals(2 * PosRepository.SCALE, history.refunds.flatMap { it.items }.sumOf { it.quantityMilliUnits })
     }
 
     @Test

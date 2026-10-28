@@ -6,6 +6,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,11 +43,27 @@ import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.Sell
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
+import androidx.compose.ui.res.pluralStringResource
+import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.DropdownMenu
@@ -75,6 +92,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -104,6 +122,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.koin.compose.koinInject
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProductsScreen(viewModel: PosViewModel) {
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
@@ -121,12 +140,15 @@ fun ProductsScreen(viewModel: PosViewModel) {
     val scope = rememberCoroutineScope()
     val printFailure = stringResource(R.string.product_label_print_failed)
     var showForm by rememberSaveable { mutableStateOf(false) }
+    var showDetails by rememberSaveable { mutableStateOf(false) }
+    val detailsSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var selectedProductId by rememberSaveable { mutableStateOf<String?>(null) }
     var editing by remember { mutableStateOf<ProductSummary?>(null) }
     var archiveTarget by remember { mutableStateOf<ProductSummary?>(null) }
     var labelTarget by remember { mutableStateOf<ProductSummary?>(null) }
     var stockTarget by remember { mutableStateOf<ProductSummary?>(null) }
     var productSearch by rememberSaveable { mutableStateOf("") }
+    var showBulkImport by rememberSaveable { mutableStateOf(false) }
     var stockFilter by rememberSaveable { mutableStateOf("ALL") }
     val visibleProducts = remember(products, productSearch, stockFilter) {
         products.filter { product ->
@@ -149,21 +171,28 @@ fun ProductsScreen(viewModel: PosViewModel) {
     val selectedProduct = visibleProducts.firstOrNull { it.id == selectedProductId }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val expanded = maxWidth >= 700.dp
+        val expanded = currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
         Column(Modifier.fillMaxSize().padding(if (expanded) PosLayout.tabletScreenPadding else PosLayout.compactScreenPadding)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                Column {
-                    Text(stringResource(R.string.products_title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text(stringResource(R.string.product_count, products.size), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = RoundedCornerShape(14.dp)) {
+                    Icon(Icons.Filled.Inventory2, null, Modifier.padding(12.dp).size(22.dp))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(stringResource(R.string.products_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Text(pluralStringResource(R.plurals.sales_product_count, products.size, products.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (PosPermission.ADD_PRODUCT in permissions) Button(
-                    onClick = { editing = null; showForm = true },
-                    contentPadding = PaddingValues(horizontal = PosSpacing.section, vertical = PosSpacing.xs),
-                    modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget),
+                    onClick = { editing = null; showForm = true }, shape = RoundedCornerShape(14.dp),
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Icon(Icons.Filled.Add, contentDescription = null)
-                    Text(stringResource(R.string.add_product), modifier = Modifier.padding(start = PosSpacing.xs))
+                    Icon(Icons.Filled.Add, null, Modifier.size(20.dp))
+                    Text(stringResource(if (expanded) R.string.add_product else R.string.product_add_short), Modifier.padding(start = 6.dp))
                 }
+            }
+            if (PosPermission.ADD_PRODUCT in permissions) androidx.compose.material3.OutlinedButton(
+                onClick = { viewModel.resetProductImport(); showBulkImport = true }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
+                Icon(Icons.Default.FileUpload, null, Modifier.size(20.dp))
+                Text(stringResource(R.string.bulk_title), Modifier.padding(start = 8.dp))
             }
             Spacer(Modifier.height(PosSpacing.sm))
             if (products.isNotEmpty()) {
@@ -171,8 +200,11 @@ fun ProductsScreen(viewModel: PosViewModel) {
                     value = productSearch,
                     onValueChange = { productSearch = it },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text(stringResource(R.string.product_search_hint)) },
-                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    placeholder = { Text(stringResource(R.string.product_search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    shape = RoundedCornerShape(18.dp),
+                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface, unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                     trailingIcon = if (productSearch.isNotEmpty()) ({
                         IconButton(onClick = { productSearch = "" }) {
                             Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.clear_search))
@@ -189,7 +221,10 @@ fun ProductsScreen(viewModel: PosViewModel) {
                         "LOW" to R.string.product_filter_low_stock,
                         "OUT" to R.string.out_of_stock,
                     ).forEach { (value, label) ->
-                        FilterChip(selected = stockFilter == value, onClick = { stockFilter = value }, label = { Text(stringResource(label)) })
+                        FilterChip(selected = stockFilter == value, onClick = { stockFilter = value }, label = { Text(stringResource(label)) },
+                            shape = RoundedCornerShape(12.dp), colors = FilterChipDefaults.filterChipColors(
+                                containerColor = MaterialTheme.colorScheme.surface, selectedContainerColor = MaterialTheme.colorScheme.primary,
+                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
                     }
                 }
                 Spacer(Modifier.height(PosSpacing.xs))
@@ -249,16 +284,39 @@ fun ProductsScreen(viewModel: PosViewModel) {
                             product = product,
                             compact = false,
                             onEdit = if (PosPermission.EDIT_PRODUCT in permissions) ({ editing = product; showForm = true }) else null,
-                            onFavorite = if (PosPermission.EDIT_PRODUCT in permissions) ({ viewModel.setProductFavorite(product.id, !product.favorite) }) else null,
+                            onFavorite = if (PosPermission.VIEW_PRODUCTS in permissions) ({ viewModel.setProductFavorite(product.id, !product.favorite) }) else null,
                             onPrintLabel = if (PosPermission.MANAGE_PRINTERS in permissions) ({ labelTarget = product }) else null,
                             onArchive = if (PosPermission.ARCHIVE_PRODUCT in permissions) ({ archiveTarget = product }) else null,
-                        ) { selectedProductId = product.id }
+                        ) { selectedProductId = product.id; showDetails = true }
                     }
                 }
             }
         }
     }
 
+    if (showDetails && selectedProduct != null) {
+        val product = selectedProduct
+        ModalBottomSheet(onDismissRequest = { showDetails = false }, sheetState = detailsSheetState,
+            containerColor = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.product_details_title), Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    IconButton(onClick = { showDetails = false }) { Icon(Icons.Default.Close, stringResource(R.string.close)) }
+                }
+                ProductDetailsPane(
+                    product, produceState<List<ProductUnitEntity>>(emptyList(), product.id) { value = viewModel.unitsFor(product.id) }.value,
+                    permissions, Modifier.fillMaxWidth(),
+                    onEdit = { showDetails = false; editing = product; showForm = true },
+                    onStock = { showDetails = false; stockTarget = product },
+                    onFavorite = { viewModel.setProductFavorite(product.id, !product.favorite) },
+                    onPrintLabel = { showDetails = false; labelTarget = product },
+                    onArchive = { showDetails = false; archiveTarget = product },
+                )
+            }
+        }
+    }
+
+    if (showBulkImport) BulkProductImportDialog(viewModel, onDismiss = { showBulkImport = false; viewModel.resetProductImport() })
     if (showForm) {
         ProductFormDialog(
             viewModel = viewModel,
@@ -275,6 +333,8 @@ fun ProductsScreen(viewModel: PosViewModel) {
     archiveTarget?.let { product ->
         AlertDialog(
             onDismissRequest = { archiveTarget = null },
+            containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
+            icon = { ProductDialogIcon(Icons.Default.Archive) },
             title = { Text(stringResource(R.string.archive_product)) },
             text = { Text(stringResource(R.string.archive_product_confirm, product.name)) },
             confirmButton = {
@@ -318,6 +378,8 @@ fun ProductsScreen(viewModel: PosViewModel) {
         var pin by remember(pending.preview.approvalId) { mutableStateOf("") }
         androidx.compose.material3.AlertDialog(
             onDismissRequest = viewModel::cancelPendingPriceChange,
+            containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
+            icon = { ProductDialogIcon(Icons.Default.WarningAmber) },
             title = { Text("Owner Approval Required") },
             text = {
                 Column(Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -348,7 +410,7 @@ fun ProductsScreen(viewModel: PosViewModel) {
 }
 
 @Composable
-private fun ProductListItem(
+internal fun ProductListItem(
     product: ProductSummary,
     selected: Boolean = false,
     compact: Boolean,
@@ -359,71 +421,86 @@ private fun ProductListItem(
     onSelect: () -> Unit,
 ) {
     var actionsExpanded by rememberSaveable(product.id) { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
     Card(
         onClick = onSelect,
-        enabled = compact,
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
-        ),
+        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = if (selected) colors.primaryContainer.copy(alpha = .25f) else colors.surface,
+            contentColor = colors.onSurface),
+        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = .5f) else colors.outlineVariant.copy(alpha = .8f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp),
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = PosSpacing.sm, vertical = PosSpacing.xs),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            ProductPhoto(product.imageFileName, Modifier.size(if (compact) 48.dp else 54.dp))
-            Spacer(Modifier.width(PosSpacing.xs))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs)) {
-                Text(product.name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(
-                    listOfNotNull(product.categoryName, product.barcode).joinToString(" · ").ifBlank { product.baseUnitLabel },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    "${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}  ·  ${PosViewModel.formatQuantity(product.onHandMilliUnits)} ${product.baseUnitLabel}",
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
-                )
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
+                ProductPhoto(product.imageFileName, Modifier.size(if (compact) 64.dp else 88.dp), contentScale = ContentScale.Fit,
+                    containerColor = colors.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(16.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    product.categoryName?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
+                    Text(PosViewModel.formatPeso(product.baseUnitPriceCentavos), style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = colors.primary, fontWeight = FontWeight.Bold)
+                    Text(stringResource(R.string.product_price_per_unit, product.baseUnitLabel), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
+                }
+                if (!compact) {
+                    Box {
+                        IconButton(onClick = { actionsExpanded = true }) {
+                            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.product_actions))
+                        }
+                        DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
+                            if (onEdit != null) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.edit_product)) },
+                                leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+                                onClick = { actionsExpanded = false; onEdit() },
+                            )
+                            if (onFavorite != null) DropdownMenuItem(
+                                text = { Text(stringResource(if (product.favorite) R.string.remove_favorite else R.string.add_favorite)) },
+                                leadingIcon = { Icon(if (product.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null) },
+                                onClick = { actionsExpanded = false; onFavorite() },
+                            )
+                            if (onPrintLabel != null) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.print_product_label)) },
+                                leadingIcon = { Icon(Icons.Filled.QrCode2, contentDescription = null) },
+                                onClick = { actionsExpanded = false; onPrintLabel() },
+                            )
+                            if (onArchive != null) DropdownMenuItem(
+                                text = { Text(stringResource(R.string.archive_product)) },
+                                leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
+                                onClick = { actionsExpanded = false; onArchive() },
+                            )
+                        }
+                    }
+                }
             }
-            if (!compact) {
-                Box {
-                    IconButton(onClick = { actionsExpanded = true }) {
-                        Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.product_actions))
-                    }
-                    DropdownMenu(expanded = actionsExpanded, onDismissRequest = { actionsExpanded = false }) {
-                        if (onEdit != null) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.edit_product)) },
-                            leadingIcon = { Icon(Icons.Filled.Edit, contentDescription = null) },
-                            onClick = { actionsExpanded = false; onEdit() },
-                        )
-                        if (onFavorite != null) DropdownMenuItem(
-                            text = { Text(stringResource(if (product.favorite) R.string.remove_favorite else R.string.add_favorite)) },
-                            leadingIcon = { Icon(if (product.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null) },
-                            onClick = { actionsExpanded = false; onFavorite() },
-                        )
-                        if (onPrintLabel != null) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.print_product_label)) },
-                            leadingIcon = { Icon(Icons.Filled.QrCode2, contentDescription = null) },
-                            onClick = { actionsExpanded = false; onPrintLabel() },
-                        )
-                        if (onArchive != null) DropdownMenuItem(
-                            text = { Text(stringResource(R.string.archive_product)) },
-                            leadingIcon = { Icon(Icons.Filled.Archive, contentDescription = null) },
-                            onClick = { actionsExpanded = false; onArchive() },
-                        )
-                    }
+            HorizontalDivider(color = colors.outlineVariant.copy(alpha = .65f))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProductStockBadge(product, Modifier.weight(1f, fill = false))
+                Spacer(Modifier.weight(1f))
+                if (product.favorite) Icon(Icons.Default.Favorite, stringResource(R.string.filter_favorites), Modifier.size(18.dp), tint = colors.primary)
+            }
+            if (!compact) product.barcode?.let { barcode ->
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.QrCode2, null, Modifier.size(16.dp), tint = colors.onSurfaceVariant)
+                    Text(barcode, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
     }
 }
 
+@Composable
+private fun ProductStockBadge(product: ProductSummary, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val empty = product.onHandMilliUnits <= 0
+    val low = !empty && product.onHandMilliUnits <= product.minimumStockMilliUnits
+    Surface(modifier, shape = RoundedCornerShape(10.dp), color = when { empty -> colors.errorContainer; low -> colors.tertiaryContainer; else -> colors.primaryContainer.copy(alpha = .5f) }) {
+        Text(if (empty) stringResource(R.string.out_of_stock) else stringResource(R.string.product_stock_summary, PosViewModel.formatQuantity(product.onHandMilliUnits), product.baseUnitLabel),
+            Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium,
+            color = when { empty -> colors.onErrorContainer; low -> colors.onTertiaryContainer; else -> colors.onSurface })
+    }
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProductDetailsPane(
+internal fun ProductDetailsPane(
     product: ProductSummary,
     units: List<ProductUnitEntity>,
     permissions: Set<PosPermission>,
@@ -434,19 +511,29 @@ private fun ProductDetailsPane(
     onPrintLabel: () -> Unit,
     onArchive: () -> Unit,
 ) {
-    Card(modifier, shape = MaterialTheme.shapes.large, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    val expanded = currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
+    val actionModifier = (if (expanded) Modifier else Modifier.fillMaxWidth()).heightIn(min = PosLayout.minimumTouchTarget)
+    Card(
+        modifier,
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
         Column(
             Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(PosSpacing.section),
             verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                ProductPhoto(product.imageFileName, Modifier.size(68.dp))
+                ProductPhoto(product.imageFileName, Modifier.size(104.dp), contentScale = ContentScale.Fit,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(20.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs)) {
                     Text(product.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     product.categoryName?.takeIf(String::isNotBlank)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                     product.barcode?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
                 }
             }
+            ProductStockBadge(product)
             androidx.compose.material3.HorizontalDivider()
             Text(stringResource(R.string.inventory_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PosSpacing.section)) {
@@ -456,8 +543,8 @@ private fun ProductDetailsPane(
                     Modifier.weight(1f),
                 )
                 ProductDetailValue(
-                    stringResource(R.string.stock_available, PosViewModel.formatQuantity(product.onHandMilliUnits)),
-                    product.baseUnitLabel,
+                    stringResource(R.string.product_stock_on_hand),
+                    "${PosViewModel.formatQuantity(product.onHandMilliUnits)} ${product.baseUnitLabel}",
                     Modifier.weight(1f),
                     emphasize = product.onHandMilliUnits <= product.minimumStockMilliUnits,
                 )
@@ -470,35 +557,40 @@ private fun ProductDetailsPane(
                 androidx.compose.material3.HorizontalDivider()
                 Text(stringResource(R.string.product_editor_units), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 extraUnits.forEach { unit ->
-                    Text(
-                        "1 ${unit.label} = ${PosViewModel.formatQuantity(unit.baseQuantityMilliUnits)} ${product.baseUnitLabel} · ${PosViewModel.formatPeso(unit.priceCentavos)}",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(14.dp)) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(unit.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(R.string.unit_conversion_example, unit.label, PosViewModel.formatQuantity(unit.baseQuantityMilliUnits), product.baseUnitLabel),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(PosViewModel.formatPeso(unit.priceCentavos), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
             androidx.compose.material3.HorizontalDivider()
             Text(stringResource(R.string.product_actions), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(PosSpacing.xs),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(PosSpacing.xs, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs),
             ) {
-                if (PosPermission.EDIT_PRODUCT in permissions) Button(onClick = onEdit, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
+                if (PosPermission.EDIT_PRODUCT in permissions) Button(onClick = onEdit, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Filled.Edit, contentDescription = null)
                     Text(stringResource(R.string.edit_product), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.ADD_STOCK in permissions) androidx.compose.material3.OutlinedButton(onClick = onStock, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
+                if (PosPermission.ADD_STOCK in permissions) androidx.compose.material3.OutlinedButton(onClick = onStock, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Filled.Add, contentDescription = null)
                     Text(stringResource(R.string.add_stock), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.EDIT_PRODUCT in permissions) androidx.compose.material3.OutlinedButton(onClick = onFavorite, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
+                if (PosPermission.VIEW_PRODUCTS in permissions) androidx.compose.material3.OutlinedButton(onClick = onFavorite, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
                     Icon(if (product.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null)
                     Text(stringResource(if (product.favorite) R.string.remove_favorite else R.string.add_favorite), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.MANAGE_PRINTERS in permissions) androidx.compose.material3.OutlinedButton(onClick = onPrintLabel, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
+                if (PosPermission.MANAGE_PRINTERS in permissions) androidx.compose.material3.OutlinedButton(onClick = onPrintLabel, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Filled.QrCode2, contentDescription = null)
                     Text(stringResource(R.string.print_product_label), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.ARCHIVE_PRODUCT in permissions) androidx.compose.material3.TextButton(onClick = onArchive, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
+                if (PosPermission.ARCHIVE_PRODUCT in permissions) androidx.compose.material3.TextButton(onClick = onArchive, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Filled.Archive, contentDescription = null)
                     Text(stringResource(R.string.archive_product), Modifier.padding(start = PosSpacing.xs))
                 }
@@ -509,9 +601,12 @@ private fun ProductDetailsPane(
 
 @Composable
 private fun ProductDetailValue(label: String, value: String, modifier: Modifier = Modifier, emphasize: Boolean = false) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs)) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium, color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+    Surface(modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.SemiBold,
+                color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+        }
     }
 }
 
@@ -521,6 +616,7 @@ private fun pricePreviewLine(value: String): String {
     return if (price == null) value else "$label · ${PosViewModel.formatPeso(price)}"
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ProductLabelOptionsDialog(
     product: ProductSummary,
@@ -531,46 +627,44 @@ private fun ProductLabelOptionsDialog(
     var selectedSize by rememberSaveable(product.id) { mutableStateOf("50x30") }
     val sizes = listOf("40x30", "50x30", "60x40")
     val copies = copiesText.toIntOrNull()?.takeIf { it in 1..100 }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.print_product_label)) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(
-                    product.barcode ?: stringResource(R.string.internal_barcode_on_print),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                ProductField(copiesText, { copiesText = it.filter(Char::isDigit).take(3) }, stringResource(R.string.label_copies), keyboardType = KeyboardType.Number)
-                Text(stringResource(R.string.label_size), style = MaterialTheme.typography.labelLarge)
-                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    sizes.forEach { size ->
-                        FilterChip(
-                            selected = selectedSize == size,
-                            onClick = { selectedSize = size },
-                            label = { Text("${size.substringBefore('x')} × ${size.substringAfter('x')} mm") },
-                        )
-                    }
-                }
+    ProductDialogFrame(
+        title = stringResource(R.string.print_product_label), icon = Icons.Default.Print, onDismiss = onDismiss,
+        actions = {
+            TextButton(onClick = onDismiss, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.cancel)) }
+            Button(enabled = copies != null, shape = RoundedCornerShape(12.dp), modifier = Modifier.heightIn(min = 48.dp), onClick = {
+                val (width, height) = selectedSize.split('x').map(String::toInt)
+                copies?.let { onPrint(it, width, height) }
+            }) {
+                Icon(Icons.Default.Print, null, Modifier.size(18.dp))
+                Text(stringResource(R.string.print_labels), Modifier.padding(start = 8.dp))
             }
         },
-        confirmButton = {
-            Button(
-                enabled = copies != null,
-                onClick = {
-                    val (width, height) = selectedSize.split('x').map(String::toInt)
-                    copies?.let { onPrint(it, width, height) }
-                },
-            ) { Text(stringResource(R.string.print_labels)) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-    )
+    ) {
+        Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .35f), shape = RoundedCornerShape(18.dp)) {
+            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProductPhoto(product.imageFileName, Modifier.size(72.dp), contentScale = ContentScale.Fit,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .3f))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text(product.barcode ?: stringResource(R.string.internal_barcode_on_print), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        ProductField(copiesText, { copiesText = it.filter(Char::isDigit).take(3) }, stringResource(R.string.label_copies), keyboardType = KeyboardType.Number)
+        Text(stringResource(R.string.label_size), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            sizes.forEach { size ->
+                FilterChip(selected = selectedSize == size, onClick = { selectedSize = size },
+                    label = { Text("${size.substringBefore('x')} × ${size.substringAfter('x')} mm") },
+                    leadingIcon = if (selectedSize == size) ({ Icon(Icons.Default.Check, null, Modifier.size(18.dp)) }) else null,
+                    shape = RoundedCornerShape(12.dp),
+                    colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface,
+                        selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary))
+            }
+        }
+    }
 }
 
 @Composable
@@ -588,6 +682,9 @@ private fun ProductFormDialog(
     val canAddStock = PosPermission.ADD_STOCK in permissions
     var name by rememberSaveable(initial?.id) { mutableStateOf(initial?.name.orEmpty()) }
     var barcode by rememberSaveable(initial?.id) { mutableStateOf(initial?.barcode.orEmpty()) }
+    val savedCategories by viewModel.categoryNames.collectAsStateWithLifecycle()
+    val savedStockUnits by viewModel.stockUnitNames.collectAsStateWithLifecycle()
+    val savedSellingUnits by viewModel.sellingUnitNames.collectAsStateWithLifecycle()
     var category by rememberSaveable(initial?.id) { mutableStateOf(initial?.categoryName.orEmpty()) }
     var unit by rememberSaveable(initial?.id) { mutableStateOf(initial?.baseUnitLabel ?: "Piece") }
     var price by rememberSaveable(initial?.id) { mutableStateOf(initial?.baseUnitPriceCentavos?.let { formatDecimal(it) }.orEmpty()) }
@@ -700,113 +797,119 @@ private fun ProductFormDialog(
             Surface(
                 modifier = if (fullScreenForm) Modifier.fillMaxSize() else Modifier.widthIn(max = 780.dp).fillMaxWidth(0.96f).heightIn(max = maxHeight.coerceAtMost(740.dp)),
                 shape = if (fullScreenForm) RoundedCornerShape(0.dp) else RoundedCornerShape(24.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 2.dp,
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 0.dp,
             ) {
                 Column(if (fullScreenForm) Modifier.fillMaxSize() else Modifier.fillMaxWidth().heightIn(max = maxHeight.coerceAtMost(740.dp))) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = PosSpacing.section, vertical = PosSpacing.sm), verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs)) {
-                        Text(stringResource(if (initial == null) R.string.add_product else R.string.edit_product), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        Text(stringResource(R.string.product_editor_basic), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Surface(color = MaterialTheme.colorScheme.surface) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            ProductDialogIcon(if (initial == null) Icons.Default.Add else Icons.Default.Edit)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(stringResource(if (initial == null) R.string.add_product else R.string.edit_product), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                Text(stringResource(R.string.product_form_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = requestDismiss) { Icon(Icons.Default.Close, stringResource(R.string.close)) }
+                        }
                     }
                     Column(
                         Modifier.weight(1f, fill = fullScreenForm).verticalScroll(rememberScrollState()).padding(horizontal = PosSpacing.section, vertical = PosSpacing.sm),
                         verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
                     ) {
-                        if (wideForm) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                                ProductField(name, { name = it; formTouched = true }, stringResource(R.string.product_name), Modifier.weight(1f))
-                                ProductField(barcode, { barcode = it; formTouched = true }, stringResource(R.string.barcode), Modifier.weight(1f))
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                                ProductField(category, { category = it; formTouched = true }, stringResource(R.string.category), Modifier.weight(1f))
-                                StockUnitDropdown(unit, { unit = it; formTouched = true }, Modifier.weight(1f))
-                            }
-                        } else {
+                        ProductFormSection(stringResource(R.string.product_editor_basic), Icons.Default.Info) {
                             ProductField(name, { name = it; formTouched = true }, stringResource(R.string.product_name))
                             ProductField(barcode, { barcode = it; formTouched = true }, stringResource(R.string.barcode))
-                            ProductField(category, { category = it; formTouched = true }, stringResource(R.string.category))
-                            StockUnitDropdown(unit, { unit = it; formTouched = true })
+                            CatalogChoiceField(category, savedCategories, stringResource(R.string.catalog_category), stringResource(R.string.catalog_category_help),
+                                { category = it; formTouched = true }, { viewModel.saveCatalogChoice("category", it) }, optional = true)
+                            CatalogChoiceField(unit, savedStockUnits, stringResource(R.string.base_unit), stringResource(R.string.catalog_stock_unit_help),
+                                { unit = it; formTouched = true }, { viewModel.saveCatalogChoice("stock", it) }, unitLabels = true)
                         }
 
-                        Text(stringResource(R.string.product_editor_pricing), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        if (wideForm) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                                ProductField(price, { price = it; formTouched = true }, stringResource(R.string.selling_price), Modifier.weight(1f), KeyboardType.Decimal)
-                                when {
-                                    canEditPurchaseCost -> ProductField(cost, { cost = it; formTouched = true }, stringResource(R.string.purchase_cost), Modifier.weight(1f), KeyboardType.Decimal)
-                                    initial != null && canViewPurchaseCost -> Text(
-                                        stringResource(R.string.purchase_cost) + ": " + PosViewModel.formatPeso(initial.purchaseCostCentavos),
-                                        modifier = Modifier.weight(1f).padding(top = 16.dp),
-                                    )
-                                    else -> Spacer(Modifier.weight(1f))
+                        ProductFormSection(stringResource(R.string.product_editor_pricing), Icons.Default.Payments) {
+                            Text(stringResource(R.string.catalog_price_help, unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (wideForm) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
+                                    ProductField(price, { price = it; formTouched = true }, stringResource(R.string.selling_price), Modifier.weight(1f), KeyboardType.Decimal)
+                                    when {
+                                        canEditPurchaseCost -> ProductField(cost, { cost = it; formTouched = true }, stringResource(R.string.purchase_cost), Modifier.weight(1f), KeyboardType.Decimal)
+                                        initial != null && canViewPurchaseCost -> Text(
+                                            stringResource(R.string.purchase_cost) + ": " + PosViewModel.formatPeso(initial.purchaseCostCentavos),
+                                            modifier = Modifier.weight(1f).padding(top = 16.dp),
+                                        )
+                                        else -> Spacer(Modifier.weight(1f))
+                                    }
+                                }
+                            } else {
+                                ProductField(price, { price = it; formTouched = true }, stringResource(R.string.selling_price), keyboardType = KeyboardType.Decimal)
+                                if (canEditPurchaseCost) ProductField(cost, { cost = it; formTouched = true }, stringResource(R.string.purchase_cost), keyboardType = KeyboardType.Decimal)
+                                else if (initial != null && canViewPurchaseCost) Text(stringResource(R.string.purchase_cost) + ": " + PosViewModel.formatPeso(initial.purchaseCostCentavos))
+                            }
+                            if (canViewPurchaseCost) Text(stringResource(R.string.catalog_cost_help, unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.catalog_stock_help, unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            ProductPhotoField(
+                                imageFileName = imageFileName,
+                                imageStore = imageStore,
+                                importing = importingPhoto,
+                                error = photoError,
+                                onChoose = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                                onRemove = { imageFileName = null; photoError = false; formTouched = true },
+                            )
+                            if (initial == null && canAddStock) ProductField(stock, { stock = it; formTouched = true }, stringResource(R.string.initial_stock), keyboardType = KeyboardType.Decimal)
+                            if (fullScreenForm) ProductField(lowStock, { lowStock = it; formTouched = true }, stringResource(R.string.low_stock_threshold), keyboardType = KeyboardType.Decimal)
+                            else Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                                ProductField(lowStock, { lowStock = it; formTouched = true }, stringResource(R.string.low_stock_threshold), Modifier.weight(1f), KeyboardType.Decimal)
+                                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                                    Checkbox(checked = fractional, onCheckedChange = { fractional = it; formTouched = true })
+                                    Text(stringResource(R.string.allow_fractional), style = MaterialTheme.typography.bodySmall)
                                 }
                             }
-                        } else {
-                            ProductField(price, { price = it; formTouched = true }, stringResource(R.string.selling_price), keyboardType = KeyboardType.Decimal)
-                            if (canEditPurchaseCost) ProductField(cost, { cost = it; formTouched = true }, stringResource(R.string.purchase_cost), keyboardType = KeyboardType.Decimal)
-                            else if (initial != null && canViewPurchaseCost) Text(stringResource(R.string.purchase_cost) + ": " + PosViewModel.formatPeso(initial.purchaseCostCentavos))
-                        }
-                        ProductPhotoField(
-                            imageFileName = imageFileName,
-                            imageStore = imageStore,
-                            importing = importingPhoto,
-                            error = photoError,
-                            onChoose = { photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                            onRemove = { imageFileName = null; photoError = false; formTouched = true },
-                        )
-                        if (initial == null && canAddStock) ProductField(stock, { stock = it; formTouched = true }, stringResource(R.string.initial_stock), keyboardType = KeyboardType.Decimal)
-                        if (fullScreenForm) ProductField(lowStock, { lowStock = it; formTouched = true }, stringResource(R.string.low_stock_threshold), keyboardType = KeyboardType.Decimal)
-                        else Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm), verticalAlignment = Alignment.CenterVertically) {
-                            ProductField(lowStock, { lowStock = it; formTouched = true }, stringResource(R.string.low_stock_threshold), Modifier.weight(1f), KeyboardType.Decimal)
-                            Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            if (fullScreenForm) Row(verticalAlignment = Alignment.CenterVertically) {
                                 Checkbox(checked = fractional, onCheckedChange = { fractional = it; formTouched = true })
-                                Text(stringResource(R.string.allow_fractional), style = MaterialTheme.typography.bodySmall)
+                                Text(stringResource(R.string.allow_fractional), style = MaterialTheme.typography.bodyMedium)
                             }
-                        }
-                        if (fullScreenForm) Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = fractional, onCheckedChange = { fractional = it; formTouched = true })
-                            Text(stringResource(R.string.allow_fractional), style = MaterialTheme.typography.bodyMedium)
                         }
 
-                        Text(stringResource(R.string.product_editor_units), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = packEnabled, onCheckedChange = { packEnabled = it; formTouched = true })
-                            Text(stringResource(R.string.add_pack_unit), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        if (packEnabled) {
-                            ProductField(packName, { packName = it; formTouched = true }, stringResource(R.string.unit_name))
-                            Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                                ProductField(packCount, { packCount = it; formTouched = true }, stringResource(R.string.unit_conversion), Modifier.weight(1f), KeyboardType.Decimal)
-                                ProductField(packPrice, { packPrice = it; formTouched = true }, stringResource(R.string.unit_price), Modifier.weight(1f), KeyboardType.Decimal)
+                        ProductFormSection(stringResource(R.string.product_editor_units), Icons.Default.Sell) {
+                            Text(stringResource(R.string.catalog_selling_unit_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = packEnabled, onCheckedChange = { packEnabled = it; formTouched = true })
+                                Text(stringResource(R.string.catalog_first_selling_unit), style = MaterialTheme.typography.bodyMedium)
                             }
-                            PosViewModel.parseQuantityMilliUnits(packCount)?.takeIf { it > 0 }?.let {
-                                Text(stringResource(R.string.unit_conversion_example, packName.ifBlank { stringResource(R.string.unit_pack) }, PosViewModel.formatQuantity(it), unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (packEnabled) {
+                                CatalogChoiceField(packName, savedSellingUnits, stringResource(R.string.catalog_selling_unit_label), stringResource(R.string.catalog_unit_name_help),
+                                    { packName = it; formTouched = true }, { viewModel.saveCatalogChoice("selling", it) }, unitLabels = true)
+                                ProductField(packCount, { packCount = it; formTouched = true }, stringResource(R.string.catalog_units_inside, unit), keyboardType = KeyboardType.Decimal)
+                                ProductField(packPrice, { packPrice = it; formTouched = true }, stringResource(R.string.unit_price), keyboardType = KeyboardType.Decimal)
+                                PosViewModel.parseQuantityMilliUnits(packCount)?.takeIf { it > 0 }?.let {
+                                    Text(stringResource(R.string.unit_conversion_example, packName.ifBlank { stringResource(R.string.unit_pack) }, PosViewModel.formatQuantity(it), unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = caseEnabled, onCheckedChange = { caseEnabled = it; formTouched = true })
-                            Text(stringResource(R.string.add_case_unit), style = MaterialTheme.typography.bodyMedium)
-                        }
-                        if (caseEnabled) {
-                            ProductField(caseName, { caseName = it; formTouched = true }, stringResource(R.string.unit_name))
-                            Row(horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                                ProductField(caseCount, { caseCount = it; formTouched = true }, stringResource(R.string.unit_conversion), Modifier.weight(1f), KeyboardType.Decimal)
-                                ProductField(casePrice, { casePrice = it; formTouched = true }, stringResource(R.string.unit_price), Modifier.weight(1f), KeyboardType.Decimal)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Checkbox(checked = caseEnabled, onCheckedChange = { caseEnabled = it; formTouched = true })
+                                Text(stringResource(R.string.catalog_second_selling_unit), style = MaterialTheme.typography.bodyMedium)
                             }
-                            PosViewModel.parseQuantityMilliUnits(caseCount)?.takeIf { it > 0 }?.let {
-                                Text(stringResource(R.string.unit_conversion_example, caseName.ifBlank { stringResource(R.string.unit_case) }, PosViewModel.formatQuantity(it), unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (caseEnabled) {
+                                CatalogChoiceField(caseName, savedSellingUnits, stringResource(R.string.catalog_selling_unit_label), stringResource(R.string.catalog_unit_name_help),
+                                    { caseName = it; formTouched = true }, { viewModel.saveCatalogChoice("selling", it) }, unitLabels = true)
+                                ProductField(caseCount, { caseCount = it; formTouched = true }, stringResource(R.string.catalog_units_inside, unit), keyboardType = KeyboardType.Decimal)
+                                ProductField(casePrice, { casePrice = it; formTouched = true }, stringResource(R.string.unit_price), keyboardType = KeyboardType.Decimal)
+                                PosViewModel.parseQuantityMilliUnits(caseCount)?.takeIf { it > 0 }?.let {
+                                    Text(stringResource(R.string.unit_conversion_example, caseName.ifBlank { stringResource(R.string.unit_case) }, PosViewModel.formatQuantity(it), unit), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                         if (attempted && input == null) Text(stringResource(R.string.error_invalid), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                     }
-                    androidx.compose.material3.HorizontalDivider()
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = PosSpacing.section, vertical = PosSpacing.xs),
-                        horizontalArrangement = Arrangement.End,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        TextButton(onClick = requestDismiss) { Text(stringResource(R.string.cancel)) }
-                        Button(onClick = { attempted = true; input?.let(onSave) }, enabled = input != null && !importingPhoto) { Text(stringResource(R.string.save)) }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Surface(color = MaterialTheme.colorScheme.surface) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End), verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = requestDismiss, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.cancel)) }
+                            Button(onClick = { attempted = true; input?.let(onSave) }, enabled = input != null && !importingPhoto,
+                                shape = RoundedCornerShape(12.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                                Icon(Icons.Default.Save, null, Modifier.size(18.dp))
+                                Text(stringResource(R.string.save), Modifier.padding(start = 8.dp))
+                            }
+                        }
                     }
                 }
             }
@@ -814,6 +917,8 @@ private fun ProductFormDialog(
     }
     if (confirmDiscard) AlertDialog(
         onDismissRequest = { confirmDiscard = false },
+        containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
+        icon = { ProductDialogIcon(Icons.Default.WarningAmber) },
         title = { Text(stringResource(R.string.discard_product_edits_title)) },
         text = { Text(stringResource(R.string.discard_product_edits_body)) },
         confirmButton = {
@@ -821,52 +926,6 @@ private fun ProductFormDialog(
         },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.cancel)) } },
     )
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun StockUnitDropdown(value: String, onSelected: (String) -> Unit, modifier: Modifier = Modifier) {
-    var expanded by remember { mutableStateOf(false) }
-    val options = listOf(
-        R.string.unit_piece to "Piece",
-        R.string.unit_pack to "Pack",
-        R.string.unit_case to "Case",
-        R.string.unit_kilo to "Kilo",
-        R.string.unit_gram to "Gram",
-        R.string.unit_liter to "Liter",
-        R.string.unit_milliliter to "Milliliter",
-        R.string.unit_bottle to "Bottle",
-        R.string.unit_can to "Can",
-        R.string.unit_box to "Box",
-        R.string.unit_bag to "Bag",
-        R.string.unit_sachet to "Sachet",
-        R.string.unit_loaf to "Loaf",
-        R.string.unit_dozen to "Dozen",
-    )
-    val currentOption = options.firstOrNull { it.second.equals(value, ignoreCase = true) }
-    val displayValue = currentOption?.let { stringResource(it.first) } ?: value
-    ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = modifier) {
-        OutlinedTextField(
-            value = displayValue,
-            onValueChange = {},
-            modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
-            label = { Text(stringResource(R.string.base_unit)) },
-            readOnly = true,
-            singleLine = true,
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-        )
-        ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            if (currentOption == null) {
-                DropdownMenuItem(text = { Text(displayValue) }, onClick = { onSelected(value); expanded = false })
-            }
-            options.forEach { (label, storedValue) ->
-                DropdownMenuItem(
-                    text = { Text(stringResource(label)) },
-                    onClick = { onSelected(storedValue); expanded = false },
-                )
-            }
-        }
-    }
 }
 
 @Composable
@@ -878,18 +937,21 @@ private fun ProductPhotoField(
     onChoose: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        ProductPhoto(imageFileName, Modifier.size(72.dp), imageStore)
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(stringResource(R.string.product_photo_optional), style = MaterialTheme.typography.titleSmall)
-            Text(stringResource(R.string.product_photo_help), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (error) Text(stringResource(R.string.product_photo_error), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            androidx.compose.material3.OutlinedButton(onClick = onChoose, enabled = !importing, modifier = Modifier.fillMaxWidth()) {
-                if (importing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                else Text(stringResource(R.string.choose_product_photo))
-            }
-            if (imageFileName != null) TextButton(onClick = onRemove, enabled = !importing) {
-                Text(stringResource(R.string.remove_product_photo))
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp)) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            ProductPhoto(imageFileName, Modifier.size(80.dp), imageStore, contentScale = ContentScale.Fit,
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(14.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.End) {
+                Text(stringResource(R.string.product_photo_optional), Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.product_photo_help), Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (error) Text(stringResource(R.string.product_photo_error), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                androidx.compose.material3.OutlinedButton(onClick = onChoose, enabled = !importing, shape = RoundedCornerShape(12.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                    if (importing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                    else Text(stringResource(R.string.choose_product_photo))
+                }
+                if (imageFileName != null) TextButton(onClick = onRemove, enabled = !importing, shape = RoundedCornerShape(12.dp)) {
+                    Text(stringResource(R.string.remove_product_photo))
+                }
             }
         }
     }
@@ -899,14 +961,19 @@ private fun ProductPhotoField(
 internal fun ProductPhoto(
     filename: String?,
     modifier: Modifier = Modifier,
-    imageStore: ProductImageStore = koinInject(),
+    imageStore: ProductImageStore? = null,
+    contentScale: ContentScale = ContentScale.Crop,
+    containerColor: androidx.compose.ui.graphics.Color? = null,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
 ) {
-    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, filename) {
-        value = withContext(Dispatchers.IO) { imageStore.decodePreview(filename) }
+    val resolvedImageStore = if (filename.isNullOrBlank() || LocalInspectionMode.current) null else imageStore ?: koinInject()
+    val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, filename, resolvedImageStore) {
+        value = if (resolvedImageStore == null || filename.isNullOrBlank()) null
+        else withContext(Dispatchers.IO) { resolvedImageStore.decodePreview(filename) }
     }
-    Surface(modifier, shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+    Surface(modifier, shape = shape, color = containerColor ?: MaterialTheme.colorScheme.surfaceVariant) {
         if (bitmap != null) {
-            Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = contentScale)
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Inventory2, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -922,6 +989,9 @@ private fun ProductField(value: String, onValueChange: (String) -> Unit, label: 
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
         label = { Text(label) },
+        shape = RoundedCornerShape(14.dp),
+        colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
     )

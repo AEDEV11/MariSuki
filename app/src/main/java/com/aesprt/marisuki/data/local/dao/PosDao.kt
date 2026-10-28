@@ -1,5 +1,8 @@
 package com.aesprt.marisuki.data.local.dao
 
+import androidx.room.Embedded
+import androidx.room.Relation
+import androidx.room.Transaction
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
@@ -37,6 +40,25 @@ data class SaleSummary(
     val totalCentavos: Long,
     val status: String,
     val customerName: String?,
+    val refundedCentavos: Long,
+    val refundedQuantityMilliUnits: Long,
+    val soldQuantityMilliUnits: Long,
+) {
+    val hasRefund: Boolean get() = refundedQuantityMilliUnits > 0
+    val fullyRefunded: Boolean get() = hasRefund && refundedQuantityMilliUnits >= soldQuantityMilliUnits
+}
+
+data class HistoryRefund(
+    @Embedded val refund: RefundEntity,
+    @Relation(parentColumn = "id", entityColumn = "refundId") val items: List<RefundItemEntity>,
+)
+
+data class SaleHistoryDetails(
+    @Embedded val sale: SaleEntity,
+    @Relation(parentColumn = "id", entityColumn = "saleId") val items: List<SaleItemEntity>,
+    @Relation(parentColumn = "id", entityColumn = "saleId") val payments: List<PaymentEntity>,
+    @Relation(parentColumn = "id", entityColumn = "saleId", entity = RefundEntity::class)
+    val refunds: List<HistoryRefund>,
 )
 
 data class LabelAmount(val label: String, val amountCentavos: Long)
@@ -170,6 +192,24 @@ interface PosDao {
 
     @Query("SELECT * FROM product_units WHERE id = :unitId AND productId = :productId")
     suspend fun productUnit(productId: String, unitId: String): ProductUnitEntity?
+
+    @Query("SELECT name FROM categories ORDER BY name COLLATE NOCASE")
+    fun observeCategoryNames(): Flow<List<String>>
+
+    @Query("SELECT DISTINCT baseUnitLabel FROM products ORDER BY baseUnitLabel COLLATE NOCASE")
+    fun observeStockUnitNames(): Flow<List<String>>
+
+    @Query("SELECT DISTINCT u.label FROM product_units u JOIN products p ON p.id = u.productId WHERE u.label != p.baseUnitLabel COLLATE NOCASE ORDER BY u.label COLLATE NOCASE")
+    fun observeSellingUnitNames(): Flow<List<String>>
+
+    @Query("SELECT value FROM app_settings WHERE `key` LIKE :prefix || '%' ORDER BY value COLLATE NOCASE")
+    fun observeCatalogLabels(prefix: String): Flow<List<String>>
+
+    @Query("SELECT value FROM app_settings WHERE `key` = :key")
+    suspend fun catalogSetting(key: String): String?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveCatalogSetting(setting: AppSettingEntity)
 
     @Insert(onConflict = OnConflictStrategy.ABORT)
     suspend fun insertCategory(category: CategoryEntity)
@@ -315,8 +355,15 @@ interface PosDao {
     @Query("SELECT * FROM sales ORDER BY createdAtMillis DESC LIMIT 500")
     fun observeSales(): Flow<List<SaleEntity>>
 
-    @Query("SELECT s.id, s.createdAtMillis, s.totalCentavos, s.status, c.name AS customerName FROM sales s LEFT JOIN customers c ON c.id = s.customerId ORDER BY s.createdAtMillis DESC LIMIT 200")
+    @Query("SELECT s.id, s.createdAtMillis, s.totalCentavos, s.status, c.name AS customerName, COALESCE((SELECT SUM(r.refundedCentavos) FROM refunds r WHERE r.saleId = s.id), 0) AS refundedCentavos, COALESCE((SELECT SUM(ri.quantityMilliUnits) FROM refund_items ri INNER JOIN refunds r ON r.id = ri.refundId WHERE r.saleId = s.id), 0) AS refundedQuantityMilliUnits, COALESCE((SELECT SUM(si.quantityMilliUnits) FROM sale_items si WHERE si.saleId = s.id), 0) AS soldQuantityMilliUnits FROM sales s LEFT JOIN customers c ON c.id = s.customerId ORDER BY s.createdAtMillis DESC LIMIT 200")
     fun observeSaleSummaries(): Flow<List<SaleSummary>>
+
+    @Transaction
+    @Query("SELECT * FROM sales WHERE id = :saleId")
+    fun observeSaleHistoryDetails(saleId: String): Flow<SaleHistoryDetails?>
+
+    @Query("SELECT displayName FROM staff_accounts WHERE id = :accountId")
+    suspend fun saleCashierName(accountId: String): String?
 
     @Query("SELECT * FROM sale_items WHERE saleId = :saleId")
     suspend fun saleItems(saleId: String): List<SaleItemEntity>

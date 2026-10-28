@@ -51,6 +51,10 @@ class AuthViewModel(private val auth: AuthRepository) : ViewModel() {
         )
     }
 
+    fun previewSetupLanguage(language: String) {
+        if (language in setOf("fil", "en")) _state.value = _state.value.copy(language = language)
+    }
+
     fun saveDraft(draft: SetupDraft, next: Int) = launch {
         auth.saveSetupDraft(draft.copy(step = next))
         _state.value = _state.value.copy(
@@ -95,8 +99,8 @@ class AuthViewModel(private val auth: AuthRepository) : ViewModel() {
         else _state.value = _state.value.copy(destination = AuthDestination.SignedIn(account), error = null)
     }
 
-    fun login(accountId: String, credential: String) = launch {
-        val account = auth.login(accountId, credential)
+    fun login(username: String, credential: String) = launch {
+        val account = auth.loginByUsername(username, credential)
         _state.value = _state.value.copy(destination = AuthDestination.SignedIn(account), error = null)
     }
 

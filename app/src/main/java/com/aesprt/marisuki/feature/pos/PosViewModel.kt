@@ -47,6 +47,15 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+data class ProductImportState(
+    val busy: Boolean = false,
+    val fileName: String = "",
+    val preview: com.aesprt.marisuki.data.importing.ImportPreview? = null,
+    val error: com.aesprt.marisuki.data.importing.ImportProblem? = null,
+    val result: com.aesprt.marisuki.data.importing.ImportResult? = null,
+    val templateSaved: Boolean = false,
+)
+
 data class CartLineState(
     val productId: String,
     val productName: String,
@@ -283,12 +292,12 @@ class PosViewModel(
 
     fun setSearchQuery(value: String) = searchProducts(value)
 
-    fun addBarcode(barcode: String) {
+    fun resolveBarcode(barcode: String, onProductFound: (ProductSummary) -> Unit) {
         viewModelScope.launch {
             try {
                 val product = repository.productByBarcode(barcode) ?: throw PosError.ProductNotFound
-                addProduct(product)
                 query.value = ""
+                onProductFound(product)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -337,6 +346,70 @@ class PosViewModel(
                 throw cancelled
             } catch (error: Throwable) {
                 _events.send(PosEvent.Error(error.toMessage()))
+            }
+        }
+    }
+
+    val categoryNames = repository.observeCategoryNames().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val stockUnitNames = repository.observeUnitNames(false).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    val sellingUnitNames = repository.observeUnitNames(true).stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _productImport = MutableStateFlow(ProductImportState())
+    val productImport = _productImport.asStateFlow()
+
+    suspend fun saveCatalogChoice(kind: String, name: String): String = kotlinx.coroutines.withContext(Dispatchers.IO) { repository.saveCatalogChoice(kind, name) }
+    fun resetProductImport() { if (!_productImport.value.busy) _productImport.value = ProductImportState() }
+    fun readProductImport(uri: Uri, resolver: ContentResolver) {
+        if (_productImport.value.busy) return
+        _productImport.value = ProductImportState(busy = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val fileName = resolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else ""
+                }.orEmpty()
+                val bytes = resolver.openInputStream(uri)?.use { input ->
+                    val output = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val n = input.read(buffer); if (n < 0) break
+                        if (output.size() + n > com.aesprt.marisuki.data.importing.ProductImport.MAX_BYTES) throw com.aesprt.marisuki.data.importing.ImportFileException(com.aesprt.marisuki.data.importing.ImportProblem.LIMIT)
+                        output.write(buffer, 0, n)
+                    }
+                    output.toByteArray()
+                } ?: throw java.io.IOException()
+                val excel = fileName.endsWith(".xlsx", true) || (bytes.size >= 2 && bytes[0] == 80.toByte() && bytes[1] == 75.toByte())
+                val preview = repository.reviewProductImport(com.aesprt.marisuki.data.importing.ProductImport.parse(bytes, excel))
+                _productImport.value = ProductImportState(fileName = fileName, preview = preview)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) { _productImport.value = ProductImportState(error = (error as? com.aesprt.marisuki.data.importing.ImportFileException)?.problem ?: com.aesprt.marisuki.data.importing.ImportProblem.FAILED) }
+        }
+    }
+    fun saveProductTemplate(uri: Uri, context: android.content.Context, excel: Boolean) {
+        if (_productImport.value.busy) return
+        _productImport.value = _productImport.value.copy(busy = true, error = null, templateSaved = false)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                context.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                    if (excel) context.assets.open("templates/products.xlsx").use { it.copyTo(output) }
+                    else output.write(com.aesprt.marisuki.data.importing.ProductImport.csvTemplate().toByteArray(Charsets.UTF_8))
+                } ?: throw java.io.IOException()
+                _productImport.value = _productImport.value.copy(busy = false, templateSaved = true)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { _productImport.value = _productImport.value.copy(busy = false, error = com.aesprt.marisuki.data.importing.ImportProblem.FAILED) }
+        }
+    }
+    fun commitProductImport() {
+        val state = _productImport.value
+        val preview = state.preview ?: return
+        if (state.busy || state.result != null || !preview.canImport) return
+        _productImport.value = state.copy(busy = true, error = null)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val result = repository.importProducts(preview.rows.map { requireNotNull(it.input) })
+                _productImport.value = state.copy(result = result)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                val refreshed = try { repository.reviewProductImport(preview) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { preview }
+                _productImport.value = state.copy(preview = refreshed, error = com.aesprt.marisuki.data.importing.ImportProblem.FAILED)
             }
         }
     }
@@ -415,6 +488,8 @@ class PosViewModel(
             repository.refundSale(RefundCommand(operationId, saleId, reason, lines, method))
         }
 
+    fun observeSaleHistoryDetails(saleId: String) = repository.observeSaleHistoryDetails(saleId)
+    suspend fun saleCashierName(accountId: String) = repository.saleCashierName(accountId)
     suspend fun saleItems(saleId: String) = repository.saleItems(saleId)
 
     fun recordUtangPayment(customerId: String, amountText: String, method: PaymentMethod, idempotencyKey: String) {

@@ -1,64 +1,82 @@
 package com.aesprt.marisuki.ui.navigation
 
+import android.content.res.Configuration
+import java.util.Locale
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PointOfSale
-import androidx.compose.material.icons.filled.AccountCircle
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.activity.compose.LocalActivityResultRegistryOwner
-import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
-import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_EXPANDED_LOWER_BOUND
+import androidx.window.core.layout.WindowSizeClass.Companion.WIDTH_DP_MEDIUM_LOWER_BOUND
 import com.aesprt.marisuki.R
+import com.aesprt.marisuki.domain.auth.AuthDestination
+import com.aesprt.marisuki.feature.auth.AuthGate
+import com.aesprt.marisuki.feature.auth.AuthViewModel
 import com.aesprt.marisuki.feature.credit.CreditScreen
 import com.aesprt.marisuki.feature.more.MoreToolsScreen
 import com.aesprt.marisuki.feature.pos.CashierScreen
@@ -67,14 +85,6 @@ import com.aesprt.marisuki.feature.pos.PosMessage
 import com.aesprt.marisuki.feature.pos.PosViewModel
 import com.aesprt.marisuki.feature.products.ProductsScreen
 import org.koin.androidx.compose.koinViewModel
-import android.content.res.Configuration
-import java.util.Locale
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.aesprt.marisuki.feature.auth.AuthGate
-import com.aesprt.marisuki.feature.auth.AuthViewModel
-import com.aesprt.marisuki.domain.auth.AuthDestination
 
 private data class Destination(
     val route: String,
@@ -89,7 +99,6 @@ private val destinations = listOf(
     Destination("more", R.string.nav_more, Icons.Filled.MoreHoriz),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MariSukiApp(viewModel: PosViewModel = koinViewModel(), authViewModel: AuthViewModel = koinViewModel()) {
     val authState by authViewModel.state.collectAsStateWithLifecycle()
@@ -101,9 +110,9 @@ fun MariSukiApp(viewModel: PosViewModel = koinViewModel(), authViewModel: AuthVi
         viewModel.setAuthenticatedAccount(account)
     }
     val lifecycleOwner = LocalLifecycleOwner.current
-    androidx.compose.runtime.DisposableEffect(lifecycleOwner, authViewModel, authState.destination) {
+    DisposableEffect(lifecycleOwner, authViewModel, authState.destination) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && authState.destination is com.aesprt.marisuki.domain.auth.AuthDestination.SignedIn) {
+            if (event == Lifecycle.Event.ON_RESUME && authState.destination is AuthDestination.SignedIn) {
                 authViewModel.onAppResumed()
             }
         }
@@ -115,14 +124,10 @@ fun MariSukiApp(viewModel: PosViewModel = koinViewModel(), authViewModel: AuthVi
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MariSukiPosAppContent(viewModel: PosViewModel, authViewModel: AuthViewModel, defaultCashierScreen: String) {
     val language by viewModel.language.collectAsStateWithLifecycle()
     val baseContext = LocalContext.current
-    // Keep the Activity's result registry reachable after LocalContext is replaced below.
-    // ConfigurationContext does not implement ActivityResultRegistryOwner, which would make
-    // rememberLauncherForActivityResult crash when a picker/export action is first composed.
     val activityResultRegistryOwner = checkNotNull(LocalActivityResultRegistryOwner.current) {
         "MariSuki must be hosted by an ActivityResultRegistryOwner."
     }
@@ -184,45 +189,107 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
         val compact = !windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_MEDIUM_LOWER_BOUND)
         val tabletLandscapeWorkspace = windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
         Scaffold(
+            containerColor = MaterialTheme.colorScheme.background,
             topBar = {
                 TopAppBar(
                     title = {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Image(
-                                painter = painterResource(R.drawable.marisuki_logo),
-                                contentDescription = stringResource(R.string.app_name),
-                                modifier = Modifier.size(32.dp),
-                            )
-                            Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
-                                Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium)
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Image(
+                                        painter = painterResource(R.drawable.marisuki_logo),
+                                        contentDescription = stringResource(R.string.app_name),
+                                        modifier = Modifier.size(28.dp),
+                                    )
+                                }
+                            }
+                            Column(verticalArrangement = Arrangement.Center) {
+                                Text(
+                                    stringResource(R.string.app_name),
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
                                 Text(
                                     authUiState.storeName.ifBlank { stringResource(R.string.brand_tagline) },
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }
                     },
                     actions = {
-                        if (accountName.isNotBlank()) Text(accountName, modifier = Modifier.widthIn(max = 112.dp), style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-                        androidx.compose.foundation.layout.Box {
-                            IconButton(onClick = { accountMenuExpanded = true }) {
-                                Icon(Icons.Filled.AccountCircle, contentDescription = stringResource(R.string.account_menu))
-                            }
-                            DropdownMenu(expanded = accountMenuExpanded, onDismissRequest = { accountMenuExpanded = false }) {
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.logout)) },
-                                    onClick = { accountMenuExpanded = false; authViewModel.logout() },
-                                )
+                        if (accountName.isNotBlank()) {
+                            Box {
+                                Surface(
+                                    shape = RoundedCornerShape(20.dp),
+                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(20.dp))
+                                        .clickable { accountMenuExpanded = true }
+                                        .padding(6.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Filled.AccountCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Text(
+                                            accountName,
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                            color = MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.widthIn(max = 130.dp)
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = accountMenuExpanded,
+                                    onDismissRequest = { accountMenuExpanded = false }
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.logout)) },
+                                        leadingIcon = {
+                                            Icon(
+                                                Icons.AutoMirrored.Filled.Logout,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.error
+                                            )
+                                        },
+                                        onClick = { accountMenuExpanded = false; authViewModel.logout() },
+                                    )
+                                }
                             }
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        titleContentColor = MaterialTheme.colorScheme.onSurface,
+                        actionIconContentColor = MaterialTheme.colorScheme.primary,
+                    ),
                 )
             },
             bottomBar = {
                 if (compact) {
-                    NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
+                    NavigationBar(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 3.dp,
+                    ) {
                         destinations.forEach { destination ->
                             val selected = backStack?.destination?.hierarchy?.any { it.route == destination.route } == true
                             NavigationBarItem(
@@ -230,6 +297,13 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                                 onClick = { navController.navigate(destination.route) { launchSingleTop = true; restoreState = true } },
                                 icon = { Icon(destination.icon, contentDescription = null) },
                                 label = { Text(stringResource(destination.label)) },
+                                colors = NavigationBarItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
                             )
                         }
                     }
@@ -242,7 +316,12 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                 verticalAlignment = Alignment.Top,
             ) {
                 if (!compact) {
-                    NavigationRail(containerColor = MaterialTheme.colorScheme.surface) {
+                    NavigationRail(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        header = {
+                            Spacer(modifier = Modifier.height(8.dp))
+                        },
+                    ) {
                         destinations.forEach { destination ->
                             val selected = backStack?.destination?.hierarchy?.any { it.route == destination.route } == true
                             NavigationRailItem(
@@ -251,6 +330,13 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                                 icon = { Icon(destination.icon, contentDescription = null) },
                                 label = { Text(stringResource(destination.label)) },
                                 alwaysShowLabel = true,
+                                colors = NavigationRailItemDefaults.colors(
+                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    selectedTextColor = MaterialTheme.colorScheme.primary,
+                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                ),
                             )
                         }
                     }
@@ -260,7 +346,13 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                     startDestination = defaultCashierScreen.lowercase().takeIf { it in setOf("sales", "products", "credit") } ?: "sales",
                     modifier = Modifier.weight(1f).fillMaxSize(),
                 ) {
-                    composable("sales") { CashierScreen(viewModel, expandedTablet = tabletLandscapeWorkspace) }
+                    composable("sales") {
+                        CashierScreen(
+                            viewModel,
+                            expandedTablet = tabletLandscapeWorkspace,
+                            mobileCameraScanning = compact,
+                        )
+                    }
                     composable("products") { ProductsScreen(viewModel) }
                     composable("credit") { CreditScreen(viewModel) }
                     composable("more") { MoreToolsScreen(viewModel, authViewModel) }

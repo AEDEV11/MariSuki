@@ -92,6 +92,26 @@ class AuthRepositoryInstrumentedTest {
     }
 
     @Test
+    fun typedUsernamesSupportOwnerAndCashierAndKeepAttemptLimits() = runBlocking {
+        val owner = auth.completeFirstTimeSetup(setupInput())
+        val cashier = auth.createCashier(StaffAccountInput(
+            "Username test cashier", "cashier.name", "123456", "123456", setOf(PosPermission.CREATE_SALE),
+        ))
+        auth.logout()
+        assertEquals(owner, auth.loginByUsername("  OWNER.TEST  ", "StorePass26!"))
+        auth.logout()
+        val unknown = runCatching { auth.loginByUsername("unknown.account", "StorePass26!") }.exceptionOrNull()
+        assertEquals(com.aesprt.marisuki.domain.auth.AuthFailure.InvalidCredentials, (unknown as AuthException).failure)
+        assertEquals(cashier, auth.loginByUsername(" Cashier.Name ", "123456"))
+        auth.logout()
+        repeat(5) {
+            assertTrue(runCatching { auth.loginByUsername("CASHIER.NAME", "000000") }.exceptionOrNull() is AuthException)
+        }
+        val locked = runCatching { auth.login(cashier.id, "123456") }.exceptionOrNull()
+        assertEquals(com.aesprt.marisuki.domain.auth.AuthFailure.RateLimited, (locked as AuthException).failure)
+    }
+
+    @Test
     fun setupPreferencesAreAvailableForThemeAndInitialPosRouting() = runBlocking {
         val input = setupInput().copy(theme = "DARK", defaultCashierScreen = "CREDIT", language = "en")
         auth.completeFirstTimeSetup(input)
