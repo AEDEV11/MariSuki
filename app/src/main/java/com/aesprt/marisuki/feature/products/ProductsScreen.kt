@@ -114,7 +114,12 @@ import com.aesprt.marisuki.domain.auth.PosPermission
 import com.aesprt.marisuki.feature.pos.PosViewModel
 import com.aesprt.marisuki.feature.more.StockDialog
 import com.aesprt.marisuki.feature.printing.ProductLabelPrinter
+import com.aesprt.marisuki.ui.components.PosEmptyState
+import com.aesprt.marisuki.ui.components.ToolChip
+import com.aesprt.marisuki.ui.components.ToolDialog
+import com.aesprt.marisuki.ui.components.ToolIcon
 import com.aesprt.marisuki.ui.theme.PosLayout
+import com.aesprt.marisuki.ui.theme.PosRadius
 import com.aesprt.marisuki.ui.theme.PosSpacing
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -174,24 +179,27 @@ fun ProductsScreen(viewModel: PosViewModel) {
         val expanded = currentWindowAdaptiveInfoV2().windowSizeClass.isWidthAtLeastBreakpoint(WIDTH_DP_EXPANDED_LOWER_BOUND)
         Column(Modifier.fillMaxSize().padding(if (expanded) PosLayout.tabletScreenPadding else PosLayout.compactScreenPadding)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Filled.Inventory2, null, Modifier.padding(12.dp).size(22.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                ToolIcon(Icons.Filled.Inventory2)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(stringResource(R.string.products_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(pluralStringResource(R.plurals.sales_product_count, products.size, products.size), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (PosPermission.ADD_PRODUCT in permissions) Button(
-                    onClick = { editing = null; showForm = true }, shape = RoundedCornerShape(14.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp), modifier = Modifier.heightIn(min = 48.dp),
+                    onClick = { editing = null; showForm = true },
+                    shape = PosRadius.button,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    modifier = Modifier.heightIn(min = 48.dp),
                 ) {
-                    Icon(Icons.Filled.Add, null, Modifier.size(20.dp))
+                    Icon(Icons.Filled.Add, null, Modifier.size(18.dp))
                     Text(stringResource(if (expanded) R.string.add_product else R.string.product_add_short), Modifier.padding(start = 6.dp))
                 }
             }
             if (PosPermission.ADD_PRODUCT in permissions) androidx.compose.material3.OutlinedButton(
-                onClick = { viewModel.resetProductImport(); showBulkImport = true }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
-                Icon(Icons.Default.FileUpload, null, Modifier.size(20.dp))
+                onClick = { viewModel.resetProductImport(); showBulkImport = true },
+                modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 48.dp),
+                shape = PosRadius.button,
+            ) {
+                Icon(Icons.Default.FileUpload, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.bulk_title), Modifier.padding(start = 8.dp))
             }
             Spacer(Modifier.height(PosSpacing.sm))
@@ -201,9 +209,12 @@ fun ProductsScreen(viewModel: PosViewModel) {
                     onValueChange = { productSearch = it },
                     modifier = Modifier.fillMaxWidth(),
                     placeholder = { Text(stringResource(R.string.product_search_hint), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = MaterialTheme.colorScheme.surface,
-                        focusedContainerColor = MaterialTheme.colorScheme.surface, unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant),
+                    shape = PosRadius.input,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = MaterialTheme.colorScheme.surface,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    ),
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
                     trailingIcon = if (productSearch.isNotEmpty()) ({
                         IconButton(onClick = { productSearch = "" }) {
@@ -212,6 +223,7 @@ fun ProductsScreen(viewModel: PosViewModel) {
                     }) else null,
                     singleLine = true,
                 )
+                Spacer(Modifier.height(PosSpacing.xs))
                 Row(
                     Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(PosSpacing.xs),
@@ -221,33 +233,35 @@ fun ProductsScreen(viewModel: PosViewModel) {
                         "LOW" to R.string.product_filter_low_stock,
                         "OUT" to R.string.out_of_stock,
                     ).forEach { (value, label) ->
-                        FilterChip(selected = stockFilter == value, onClick = { stockFilter = value }, label = { Text(stringResource(label)) },
-                            shape = RoundedCornerShape(12.dp), colors = FilterChipDefaults.filterChipColors(
-                                containerColor = MaterialTheme.colorScheme.surface, selectedContainerColor = MaterialTheme.colorScheme.primary,
-                                selectedLabelColor = MaterialTheme.colorScheme.onPrimary))
+                        ToolChip(
+                            selected = stockFilter == value,
+                            onClick = { stockFilter = value },
+                            label = { Text(stringResource(label)) },
+                        )
                     }
                 }
                 Spacer(Modifier.height(PosSpacing.xs))
             }
             if (products.isEmpty()) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(
-                        modifier = Modifier.widthIn(max = 420.dp).padding(PosSpacing.major),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
-                    ) {
-                        Icon(Icons.Filled.Inventory2, contentDescription = null, modifier = Modifier.size(52.dp), tint = MaterialTheme.colorScheme.primary)
-                        Text(stringResource(R.string.cashier_empty_products), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (PosPermission.ADD_PRODUCT in permissions) Button(onClick = { editing = null; showForm = true }, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget)) {
-                            Icon(Icons.Filled.Add, contentDescription = null)
-                            Text(stringResource(R.string.add_product), Modifier.padding(start = PosSpacing.xs))
+                PosEmptyState(
+                    icon = Icons.Filled.Inventory2,
+                    title = stringResource(R.string.cashier_empty_products),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    action = if (PosPermission.ADD_PRODUCT in permissions) {
+                        {
+                            Button(onClick = { editing = null; showForm = true }, modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget), shape = PosRadius.button) {
+                                Icon(Icons.Filled.Add, contentDescription = null)
+                                Text(stringResource(R.string.add_product), Modifier.padding(start = PosSpacing.xs))
+                            }
                         }
-                    }
-                }
+                    } else null,
+                )
             } else if (visibleProducts.isEmpty()) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Text(stringResource(R.string.product_filter_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                PosEmptyState(
+                    icon = Icons.Filled.Search,
+                    title = stringResource(R.string.product_filter_empty),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
             } else if (expanded) {
                 Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PosLayout.tabletPaneGap)) {
                     LazyColumn(
@@ -331,14 +345,16 @@ fun ProductsScreen(viewModel: PosViewModel) {
         )
     }
     archiveTarget?.let { product ->
-        AlertDialog(
+        ToolDialog(
             onDismissRequest = { archiveTarget = null },
-            containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
             icon = { ProductDialogIcon(Icons.Default.Archive) },
             title = { Text(stringResource(R.string.archive_product)) },
-            text = { Text(stringResource(R.string.archive_product_confirm, product.name)) },
+            text = { Text(stringResource(R.string.archive_product_confirm, product.name), style = MaterialTheme.typography.bodyMedium) },
             confirmButton = {
-                TextButton(onClick = { viewModel.archiveProduct(product.id); archiveTarget = null }) { Text(stringResource(R.string.archive_product)) }
+                Button(
+                    onClick = { viewModel.archiveProduct(product.id); archiveTarget = null },
+                    shape = PosRadius.button,
+                ) { Text(stringResource(R.string.archive_product)) }
             },
             dismissButton = { TextButton(onClick = { archiveTarget = null }) { Text(stringResource(R.string.cancel)) } },
         )
@@ -376,22 +392,22 @@ fun ProductsScreen(viewModel: PosViewModel) {
     }
     pendingPriceChange?.let { pending ->
         var pin by remember(pending.preview.approvalId) { mutableStateOf("") }
-        androidx.compose.material3.AlertDialog(
+        ToolDialog(
             onDismissRequest = viewModel::cancelPendingPriceChange,
-            containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
             icon = { ProductDialogIcon(Icons.Default.WarningAmber) },
             title = { Text("Owner Approval Required") },
             text = {
-                Column(Modifier.fillMaxWidth().heightIn(max = 380.dp).verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("Wala kang permission na baguhin ang presyo. Kailangan ng Owner PIN.")
                     Text(pending.preview.beforeValue.split("; ").joinToString("\n") { pricePreviewLine(it) })
-                    Text("Requested price", style = MaterialTheme.typography.titleSmall)
+                    Text("Requested price", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     Text(pending.preview.afterValue.split("; ").joinToString("\n") { pricePreviewLine(it) })
                     OutlinedTextField(
                         value = pin,
                         onValueChange = { if (it.length <= 6 && it.all(Char::isDigit)) pin = it },
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Owner authorization PIN") },
+                        shape = PosRadius.input,
                         singleLine = true,
                         visualTransformation = PasswordVisualTransformation(),
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
@@ -400,7 +416,11 @@ fun ProductsScreen(viewModel: PosViewModel) {
                 }
             },
             confirmButton = {
-                Button(onClick = { val entered = pin; pin = ""; viewModel.authorizePendingPriceChange(entered) }, enabled = pin.length == 6 && !working) {
+                Button(
+                    onClick = { val entered = pin; pin = ""; viewModel.authorizePendingPriceChange(entered) },
+                    enabled = pin.length == 6 && !working,
+                    shape = PosRadius.button,
+                ) {
                     if (working) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Text("Authorize and save")
                 }
             },
@@ -424,17 +444,25 @@ internal fun ProductListItem(
     val colors = MaterialTheme.colorScheme
     Card(
         onClick = onSelect,
-        modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = if (selected) colors.primaryContainer.copy(alpha = .25f) else colors.surface,
-            contentColor = colors.onSurface),
-        border = BorderStroke(1.dp, if (selected) colors.primary.copy(alpha = .5f) else colors.outlineVariant.copy(alpha = .8f)),
+        modifier = Modifier.fillMaxWidth(),
+        shape = PosRadius.card,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) colors.primaryContainer.copy(alpha = .25f) else colors.surface,
+            contentColor = colors.onSurface,
+        ),
+        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Top) {
-                ProductPhoto(product.imageFileName, Modifier.size(if (compact) 64.dp else 88.dp), contentScale = ContentScale.Fit,
-                    containerColor = colors.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(16.dp))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                ProductPhoto(
+                    product.imageFileName,
+                    Modifier.size(if (compact) 60.dp else 80.dp),
+                    contentScale = ContentScale.Fit,
+                    containerColor = colors.surfaceContainerLow,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     product.categoryName?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant) }
                     Text(PosViewModel.formatPeso(product.baseUnitPriceCentavos), style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), color = colors.primary, fontWeight = FontWeight.Bold)
@@ -470,7 +498,7 @@ internal fun ProductListItem(
                     }
                 }
             }
-            HorizontalDivider(color = colors.outlineVariant.copy(alpha = .65f))
+            HorizontalDivider(color = colors.outlineVariant)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 ProductStockBadge(product, Modifier.weight(1f, fill = false))
                 Spacer(Modifier.weight(1f))
@@ -491,10 +519,26 @@ private fun ProductStockBadge(product: ProductSummary, modifier: Modifier = Modi
     val colors = MaterialTheme.colorScheme
     val empty = product.onHandMilliUnits <= 0
     val low = !empty && product.onHandMilliUnits <= product.minimumStockMilliUnits
-    Surface(modifier, shape = RoundedCornerShape(10.dp), color = when { empty -> colors.errorContainer; low -> colors.tertiaryContainer; else -> colors.primaryContainer.copy(alpha = .5f) }) {
-        Text(if (empty) stringResource(R.string.out_of_stock) else stringResource(R.string.product_stock_summary, PosViewModel.formatQuantity(product.onHandMilliUnits), product.baseUnitLabel),
-            Modifier.padding(horizontal = 10.dp, vertical = 7.dp), style = MaterialTheme.typography.labelMedium,
-            color = when { empty -> colors.onErrorContainer; low -> colors.onTertiaryContainer; else -> colors.onSurface })
+    Surface(
+        modifier,
+        shape = PosRadius.badge,
+        color = when {
+            empty -> colors.errorContainer
+            low -> colors.tertiaryContainer
+            else -> colors.primaryContainer.copy(alpha = .45f)
+        },
+    ) {
+        Text(
+            if (empty) stringResource(R.string.out_of_stock) else stringResource(R.string.product_stock_summary, PosViewModel.formatQuantity(product.onHandMilliUnits), product.baseUnitLabel),
+            Modifier.padding(horizontal = 8.dp, vertical = 5.dp),
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.SemiBold,
+            color = when {
+                empty -> colors.onErrorContainer
+                low -> colors.onTertiaryContainer
+                else -> colors.onSurface
+            },
+        )
     }
 }
 
@@ -515,7 +559,7 @@ internal fun ProductDetailsPane(
     val actionModifier = (if (expanded) Modifier else Modifier.fillMaxWidth()).heightIn(min = PosLayout.minimumTouchTarget)
     Card(
         modifier,
-        shape = RoundedCornerShape(24.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
@@ -525,8 +569,13 @@ internal fun ProductDetailsPane(
             verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
-                ProductPhoto(product.imageFileName, Modifier.size(104.dp), contentScale = ContentScale.Fit,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(20.dp))
+                ProductPhoto(
+                    product.imageFileName,
+                    Modifier.size(96.dp),
+                    contentScale = ContentScale.Fit,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    shape = RoundedCornerShape(14.dp),
+                )
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs)) {
                     Text(product.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     product.categoryName?.takeIf(String::isNotBlank)?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
@@ -534,9 +583,9 @@ internal fun ProductDetailsPane(
                 }
             }
             ProductStockBadge(product)
-            androidx.compose.material3.HorizontalDivider()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(stringResource(R.string.inventory_title), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PosSpacing.section)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
                 ProductDetailValue(
                     stringResource(R.string.selling_price),
                     "${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}",
@@ -554,43 +603,46 @@ internal fun ProductDetailsPane(
             }
             val extraUnits = units.filter { it.baseQuantityMilliUnits != 1_000L || !it.label.equals(product.baseUnitLabel, ignoreCase = true) }
             if (extraUnits.isNotEmpty()) {
-                androidx.compose.material3.HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Text(stringResource(R.string.product_editor_units), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                 extraUnits.forEach { unit ->
-                    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(14.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.input, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(unit.label, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            Text(stringResource(R.string.unit_conversion_example, unit.label, PosViewModel.formatQuantity(unit.baseQuantityMilliUnits), product.baseUnitLabel),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                stringResource(R.string.unit_conversion_example, unit.label, PosViewModel.formatQuantity(unit.baseQuantityMilliUnits), product.baseUnitLabel),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             Text(PosViewModel.formatPeso(unit.priceCentavos), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
             }
-            androidx.compose.material3.HorizontalDivider()
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(stringResource(R.string.product_actions), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             FlowRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(PosSpacing.xs, Alignment.End),
                 verticalArrangement = Arrangement.spacedBy(PosSpacing.xxs),
             ) {
-                if (PosPermission.EDIT_PRODUCT in permissions) Button(onClick = onEdit, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
+                if (PosPermission.EDIT_PRODUCT in permissions) Button(onClick = onEdit, modifier = actionModifier, shape = PosRadius.button) {
                     Icon(Icons.Filled.Edit, contentDescription = null)
                     Text(stringResource(R.string.edit_product), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.ADD_STOCK in permissions) androidx.compose.material3.OutlinedButton(onClick = onStock, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
+                if (PosPermission.ADD_STOCK in permissions) androidx.compose.material3.OutlinedButton(onClick = onStock, modifier = actionModifier, shape = PosRadius.button) {
                     Icon(Icons.Filled.Add, contentDescription = null)
                     Text(stringResource(R.string.add_stock), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.VIEW_PRODUCTS in permissions) androidx.compose.material3.OutlinedButton(onClick = onFavorite, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
+                if (PosPermission.VIEW_PRODUCTS in permissions) androidx.compose.material3.OutlinedButton(onClick = onFavorite, modifier = actionModifier, shape = PosRadius.button) {
                     Icon(if (product.favorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder, contentDescription = null)
                     Text(stringResource(if (product.favorite) R.string.remove_favorite else R.string.add_favorite), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.MANAGE_PRINTERS in permissions) androidx.compose.material3.OutlinedButton(onClick = onPrintLabel, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
+                if (PosPermission.MANAGE_PRINTERS in permissions) androidx.compose.material3.OutlinedButton(onClick = onPrintLabel, modifier = actionModifier, shape = PosRadius.button) {
                     Icon(Icons.Filled.QrCode2, contentDescription = null)
                     Text(stringResource(R.string.print_product_label), Modifier.padding(start = PosSpacing.xs))
                 }
-                if (PosPermission.ARCHIVE_PRODUCT in permissions) androidx.compose.material3.TextButton(onClick = onArchive, modifier = actionModifier, shape = RoundedCornerShape(12.dp)) {
+                if (PosPermission.ARCHIVE_PRODUCT in permissions) androidx.compose.material3.TextButton(onClick = onArchive, modifier = actionModifier, shape = PosRadius.button) {
                     Icon(Icons.Filled.Archive, contentDescription = null)
                     Text(stringResource(R.string.archive_product), Modifier.padding(start = PosSpacing.xs))
                 }
@@ -601,11 +653,15 @@ internal fun ProductDetailsPane(
 
 @Composable
 private fun ProductDetailValue(label: String, value: String, modifier: Modifier = Modifier, emphasize: Boolean = false) {
-    Surface(modifier, shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Surface(modifier, shape = PosRadius.input, color = MaterialTheme.colorScheme.surfaceContainerLow, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.SemiBold,
-                color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+            Text(
+                value,
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
+                fontWeight = FontWeight.SemiBold,
+                color = if (emphasize) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+            )
         }
     }
 }
@@ -630,8 +686,8 @@ private fun ProductLabelOptionsDialog(
     ProductDialogFrame(
         title = stringResource(R.string.print_product_label), icon = Icons.Default.Print, onDismiss = onDismiss,
         actions = {
-            TextButton(onClick = onDismiss, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.cancel)) }
-            Button(enabled = copies != null, shape = RoundedCornerShape(12.dp), modifier = Modifier.heightIn(min = 48.dp), onClick = {
+            TextButton(onClick = onDismiss, shape = PosRadius.button) { Text(stringResource(R.string.cancel)) }
+            Button(enabled = copies != null, shape = PosRadius.button, modifier = Modifier.heightIn(min = 48.dp), onClick = {
                 val (width, height) = selectedSize.split('x').map(String::toInt)
                 copies?.let { onPrint(it, width, height) }
             }) {
@@ -640,28 +696,26 @@ private fun ProductLabelOptionsDialog(
             }
         },
     ) {
-        Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .35f), shape = RoundedCornerShape(18.dp)) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProductPhoto(product.imageFileName, Modifier.size(72.dp), contentScale = ContentScale.Fit,
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .3f))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.card, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
+            Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                ProductPhoto(product.imageFileName, Modifier.size(64.dp), contentScale = ContentScale.Fit,
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .3f), shape = RoundedCornerShape(10.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(product.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("${PosViewModel.formatPeso(product.baseUnitPriceCentavos)} / ${product.baseUnitLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
                     Text(product.barcode ?: stringResource(R.string.internal_barcode_on_print), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         }
         ProductField(copiesText, { copiesText = it.filter(Char::isDigit).take(3) }, stringResource(R.string.label_copies), keyboardType = KeyboardType.Number)
         Text(stringResource(R.string.label_size), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             sizes.forEach { size ->
-                FilterChip(selected = selectedSize == size, onClick = { selectedSize = size },
+                ToolChip(
+                    selected = selectedSize == size,
+                    onClick = { selectedSize = size },
                     label = { Text("${size.substringBefore('x')} × ${size.substringAfter('x')} mm") },
-                    leadingIcon = if (selectedSize == size) ({ Icon(Icons.Default.Check, null, Modifier.size(18.dp)) }) else null,
-                    shape = RoundedCornerShape(12.dp),
-                    colors = FilterChipDefaults.filterChipColors(containerColor = MaterialTheme.colorScheme.surface,
-                        selectedContainerColor = MaterialTheme.colorScheme.primary, selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                        selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary))
+                )
             }
         }
     }
@@ -796,19 +850,23 @@ private fun ProductFormDialog(
             val fullScreenForm = maxWidth < 600.dp
             Surface(
                 modifier = if (fullScreenForm) Modifier.fillMaxSize() else Modifier.widthIn(max = 780.dp).fillMaxWidth(0.96f).heightIn(max = maxHeight.coerceAtMost(740.dp)),
-                shape = if (fullScreenForm) RoundedCornerShape(0.dp) else RoundedCornerShape(24.dp),
+                shape = if (fullScreenForm) RoundedCornerShape(0.dp) else PosRadius.dialog,
                 color = MaterialTheme.colorScheme.background,
+                border = if (fullScreenForm) null else BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 tonalElevation = 0.dp,
             ) {
                 Column(if (fullScreenForm) Modifier.fillMaxSize() else Modifier.fillMaxWidth().heightIn(max = maxHeight.coerceAtMost(740.dp))) {
                     Surface(color = MaterialTheme.colorScheme.surface) {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                            ProductDialogIcon(if (initial == null) Icons.Default.Add else Icons.Default.Edit)
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(stringResource(if (initial == null) R.string.add_product else R.string.edit_product), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                                Text(stringResource(R.string.product_form_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column {
+                            Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                ProductDialogIcon(if (initial == null) Icons.Default.Add else Icons.Default.Edit)
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(stringResource(if (initial == null) R.string.add_product else R.string.edit_product), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                    Text(stringResource(R.string.product_form_subtitle), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                IconButton(onClick = requestDismiss) { Icon(Icons.Default.Close, stringResource(R.string.close)) }
                             }
-                            IconButton(onClick = requestDismiss) { Icon(Icons.Default.Close, stringResource(R.string.close)) }
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         }
                     }
                     Column(
@@ -915,14 +973,16 @@ private fun ProductFormDialog(
             }
         }
     }
-    if (confirmDiscard) AlertDialog(
+    if (confirmDiscard) ToolDialog(
         onDismissRequest = { confirmDiscard = false },
-        containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
         icon = { ProductDialogIcon(Icons.Default.WarningAmber) },
         title = { Text(stringResource(R.string.discard_product_edits_title)) },
-        text = { Text(stringResource(R.string.discard_product_edits_body)) },
+        text = { Text(stringResource(R.string.discard_product_edits_body), style = MaterialTheme.typography.bodyMedium) },
         confirmButton = {
-            TextButton(onClick = { confirmDiscard = false; onDismiss() }) { Text(stringResource(R.string.discard)) }
+            Button(
+                onClick = { confirmDiscard = false; onDismiss() },
+                shape = PosRadius.button,
+            ) { Text(stringResource(R.string.discard)) }
         },
         dismissButton = { TextButton(onClick = { confirmDiscard = false }) { Text(stringResource(R.string.cancel)) } },
     )
@@ -937,19 +997,19 @@ private fun ProductPhotoField(
     onChoose: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp)) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.input, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            ProductPhoto(imageFileName, Modifier.size(80.dp), imageStore, contentScale = ContentScale.Fit,
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .4f), shape = RoundedCornerShape(14.dp))
+            ProductPhoto(imageFileName, Modifier.size(72.dp), imageStore, contentScale = ContentScale.Fit,
+                containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(10.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp), horizontalAlignment = Alignment.End) {
                 Text(stringResource(R.string.product_photo_optional), Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleSmall)
                 Text(stringResource(R.string.product_photo_help), Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (error) Text(stringResource(R.string.product_photo_error), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                androidx.compose.material3.OutlinedButton(onClick = onChoose, enabled = !importing, shape = RoundedCornerShape(12.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                androidx.compose.material3.OutlinedButton(onClick = onChoose, enabled = !importing, shape = PosRadius.button, modifier = Modifier.heightIn(min = 48.dp)) {
                     if (importing) CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
                     else Text(stringResource(R.string.choose_product_photo))
                 }
-                if (imageFileName != null) TextButton(onClick = onRemove, enabled = !importing, shape = RoundedCornerShape(12.dp)) {
+                if (imageFileName != null) TextButton(onClick = onRemove, enabled = !importing, shape = PosRadius.button) {
                     Text(stringResource(R.string.remove_product_photo))
                 }
             }
@@ -964,7 +1024,7 @@ internal fun ProductPhoto(
     imageStore: ProductImageStore? = null,
     contentScale: ContentScale = ContentScale.Crop,
     containerColor: androidx.compose.ui.graphics.Color? = null,
-    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(12.dp),
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(10.dp),
 ) {
     val resolvedImageStore = if (filename.isNullOrBlank() || LocalInspectionMode.current) null else imageStore ?: koinInject()
     val bitmap by produceState<android.graphics.Bitmap?>(initialValue = null, filename, resolvedImageStore) {
@@ -976,7 +1036,7 @@ internal fun ProductPhoto(
             Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = contentScale)
         } else {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(Icons.Filled.Inventory2, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                Icon(Icons.Filled.Inventory2, contentDescription = null, modifier = Modifier.size(22.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -989,9 +1049,12 @@ private fun ProductField(value: String, onValueChange: (String) -> Unit, label: 
         onValueChange = onValueChange,
         modifier = modifier.fillMaxWidth(),
         label = { Text(label) },
-        shape = RoundedCornerShape(14.dp),
-        colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest),
+        shape = PosRadius.input,
+        colors = OutlinedTextFieldDefaults.colors(
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+        ),
         singleLine = true,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
     )

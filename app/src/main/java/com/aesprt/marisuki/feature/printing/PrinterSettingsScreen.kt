@@ -24,16 +24,19 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import com.aesprt.marisuki.ui.components.ToolCard
 import com.aesprt.marisuki.ui.components.ToolChip
 import com.aesprt.marisuki.ui.components.ToolSectionHeader
+import com.aesprt.marisuki.ui.theme.PosRadius
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Print
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Straighten
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -111,12 +114,7 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f)),
-        ) {
+        ToolCard {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToolSectionHeader(stringResource(R.string.printer_connection), Icons.Default.Print, stringResource(R.string.printer_settings_description))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -139,13 +137,13 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
                         val hasConnectPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
                             ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED
                         if (!hasConnectPermission) {
-                            Button(shape = RoundedCornerShape(12.dp), onClick = { bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT) }) {
+                            Button(shape = PosRadius.button, onClick = { bluetoothPermission.launch(Manifest.permission.BLUETOOTH_CONNECT) }) {
                                 Text(stringResource(R.string.printer_allow_nearby))
                             }
                         } else {
                             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                OutlinedButton(shape = RoundedCornerShape(12.dp), onClick = ::refreshBluetooth) { Text(stringResource(R.string.printer_refresh_devices)) }
-                                OutlinedButton(shape = RoundedCornerShape(12.dp), onClick = {
+                                OutlinedButton(shape = PosRadius.button, onClick = ::refreshBluetooth) { Text(stringResource(R.string.printer_refresh_devices)) }
+                                OutlinedButton(shape = PosRadius.button, onClick = {
                                     runCatching { context.startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS)) }
                                         .onFailure { status = it.localizedMessage ?: printerTestFailed }
                                 }) { Text(stringResource(R.string.printer_pair_devices)) }
@@ -158,29 +156,45 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
                                 val deviceName = if (deviceNameValue.isBlank()) stringResource(R.string.printer_bluetooth) else deviceNameValue
                                 val selected = profile.bluetoothAddress == device.address
                                 OutlinedButton(
-                                    shape = RoundedCornerShape(12.dp),
+                                    shape = PosRadius.button,
                                     onClick = { authorizeSettingsChange { store.setBluetoothPrinter(device.address); status = null } },
-                                    modifier = Modifier.fillMaxWidth(),
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                                        contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                    ),
+                                    border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
                                 ) {
-                                    Text(if (selected) "✓ $deviceName · ${device.address}" else "$deviceName · ${device.address}")
+                                    Text(
+                                        if (selected) "✓ $deviceName · ${device.address}" else "$deviceName · ${device.address}",
+                                        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
                                 }
                             }
                         }
                     }
                     PrinterConnectionType.USB_BULK -> {
                         Text(stringResource(R.string.printer_usb_description), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        OutlinedButton(shape = RoundedCornerShape(12.dp), onClick = ::refreshUsb) { Text(stringResource(R.string.printer_refresh_devices)) }
+                        OutlinedButton(shape = PosRadius.button, onClick = ::refreshUsb) { Text(stringResource(R.string.printer_refresh_devices)) }
                         if (usbDevices.isEmpty()) Text(stringResource(R.string.printer_no_usb), color = MaterialTheme.colorScheme.onSurfaceVariant)
                         usbDevices.forEach { device ->
                             val selected = profile.usbVendorId == device.vendorId && profile.usbProductId == device.productId
                             val productNameValue = runCatching { device.productName }.getOrNull().orEmpty()
                             val productName = if (productNameValue.isBlank()) stringResource(R.string.printer_usb) else productNameValue
                             OutlinedButton(
-                                shape = RoundedCornerShape(12.dp),
+                                shape = PosRadius.button,
                                 onClick = { authorizeSettingsChange { store.setUsbPrinter(device.vendorId, device.productId); status = null } },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(
+                                    containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                                    contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                ),
+                                border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
                             ) {
-                                Text(if (selected) "✓ $productName · ${device.vendorId}:${device.productId}" else "$productName · ${device.vendorId}:${device.productId}")
+                                Text(
+                                    if (selected) "✓ $productName · ${device.vendorId}:${device.productId}" else "$productName · ${device.vendorId}:${device.productId}",
+                                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                                )
                             }
                         }
                     }
@@ -188,14 +202,9 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
             }
         }
 
-        Card(
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f)),
-        ) {
+        ToolCard {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                ToolSectionHeader(stringResource(R.string.printer_receipt_width), Icons.Default.ReceiptLong)
+                ToolSectionHeader(stringResource(R.string.printer_receipt_width), Icons.AutoMirrored.Filled.ReceiptLong)
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf(58, 80).forEach { width ->
                         ToolChip(
@@ -218,7 +227,7 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
                 Spacer(Modifier.height(2.dp))
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = PosRadius.button,
                         onClick = {
                             scope.launch {
                                 busy = true
@@ -238,7 +247,7 @@ fun PrinterSettingsScreen(viewModel: PosViewModel) {
                         enabled = !busy && hasSelectedPrinter(profile),
                     ) { Text(stringResource(R.string.printer_test_receipt)) }
                     Button(
-                        shape = RoundedCornerShape(12.dp),
+                        shape = PosRadius.button,
                         onClick = {
                             scope.launch {
                                 busy = true

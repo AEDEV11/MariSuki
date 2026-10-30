@@ -16,6 +16,7 @@ import com.aesprt.marisuki.data.local.dao.SaleSummary
 import com.aesprt.marisuki.data.local.dao.SaleHistoryDetails
 import com.aesprt.marisuki.feature.pos.PosViewModel
 import com.aesprt.marisuki.domain.auth.PosPermission
+import com.aesprt.marisuki.ui.theme.PosRadius
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.catch
 import java.time.Instant
@@ -35,19 +36,20 @@ internal fun SaleHistoryCard(
     var expanded by rememberSaveable(sale.id) { mutableStateOf(false) }
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val colors = MaterialTheme.colorScheme
-    val container = if (sale.hasRefund) colors.errorContainer.copy(alpha = 0.45f) else colors.surface
+    val container = if (sale.hasRefund) colors.errorContainer.copy(alpha = 0.35f) else colors.surface
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(containerColor = container),
         border = BorderStroke(1.dp, if (sale.hasRefund) colors.error.copy(alpha = 0.25f) else colors.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Surface(
                     color = if (sale.hasRefund) colors.errorContainer else colors.secondaryContainer,
                     contentColor = if (sale.hasRefund) colors.onErrorContainer else colors.onSecondaryContainer,
-                    shape = RoundedCornerShape(8.dp),
+                    shape = PosRadius.badge,
                 ) {
                     Text(
                         stringResource(when {
@@ -55,8 +57,9 @@ internal fun SaleHistoryCard(
                             sale.hasRefund -> R.string.history_partial_refund
                             else -> R.string.history_completed
                         }),
-                        Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
+                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
                         style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
                     )
                 }
                 Text(historyDate(sale.createdAtMillis), style = MaterialTheme.typography.bodyMedium, color = colors.onSurfaceVariant)
@@ -71,7 +74,7 @@ internal fun SaleHistoryCard(
             if (expanded) SaleHistoryExpanded(sale.id, viewModel)
             HorizontalDivider(color = colors.outlineVariant)
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                OutlinedButton(onClick = { expanded = !expanded }) {
+                OutlinedButton(onClick = { expanded = !expanded }, shape = PosRadius.button) {
                     Text(stringResource(if (expanded) R.string.history_hide_details else R.string.history_view_details))
                 }
                 if (PosPermission.REPRINT_SLIP in permissions) TextButton(onClick = onPrint, enabled = !working) { Text(stringResource(R.string.print_receipt)) }
@@ -116,7 +119,7 @@ private fun SaleHistoryContents(history: SaleHistoryDetails, viewModel: PosViewM
         }
     }
     HorizontalDivider()
-    HistoryValue(stringResource(R.string.sale_channel_label), stringResource(if (sale.salesChannel == "WHOLESALE") R.string.sale_channel_wholesale else R.string.sale_channel_tingi))
+    HistoryValue(stringResource(R.string.sale_channel_label), stringResource(saleChannelLabel(sale.salesChannel)))
     HistoryValue(stringResource(R.string.history_cashier), cashierName ?: stringResource(R.string.history_unavailable))
     Text(stringResource(R.string.history_items), style = MaterialTheme.typography.titleSmall)
     history.items.forEach { item ->
@@ -132,6 +135,7 @@ private fun SaleHistoryContents(history: SaleHistoryDetails, viewModel: PosViewM
     Text(stringResource(R.string.history_payments), style = MaterialTheme.typography.titleSmall)
     history.payments.forEach { payment ->
         HistoryValue(historyMethod(payment.method), PosViewModel.formatPeso(payment.amountAppliedCentavos))
+        payment.referenceNumber?.let { HistoryValue(stringResource(R.string.reference_number), it) }
         payment.tenderedCentavos?.let { HistoryValue(stringResource(R.string.history_tendered), PosViewModel.formatPeso(it)) }
         if (payment.changeCentavos > 0) HistoryValue(stringResource(R.string.change_due), PosViewModel.formatPeso(payment.changeCentavos))
     }
@@ -162,7 +166,7 @@ private fun HistoryValue(label: String, value: String, prominent: Boolean = fals
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Text(value, Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            style = if (prominent) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium,
+            style = (if (prominent) MaterialTheme.typography.titleLarge else MaterialTheme.typography.bodyMedium).copy(fontFeatureSettings = "tnum"),
             fontWeight = if (prominent) FontWeight.Bold else FontWeight.Medium)
     }
 }
@@ -178,3 +182,10 @@ private fun historyMethod(method: String): String = when (method) {
 
 private fun historyDate(millis: Long): String = Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault())
     .format(DateTimeFormatter.ofPattern("MMM d, yyyy · h:mm a", Locale.getDefault()))
+
+/** Maps a stored sale channel to its localized label; unknown values fall back to tingi. */
+internal fun saleChannelLabel(channel: String): Int = when (channel) {
+    "WHOLESALE" -> R.string.sale_channel_wholesale
+    "MIXED" -> R.string.sale_channel_mixed
+    else -> R.string.sale_channel_tingi
+}

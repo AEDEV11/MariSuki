@@ -39,6 +39,7 @@ object EscPosCommandBuilder {
         output.command(0x1b, 0x45, 0)
         receipt.payments.forEach { payment ->
             output.twoColumns(payment.method, php(payment.amountAppliedCentavos), columns)
+            payment.referenceNumber?.let { output.wrap("Ref no. $it", columns) }
             if (payment.changeCentavos > 0) output.twoColumns("Change", php(payment.changeCentavos), columns)
         }
         val paid = receipt.payments.sumOf { it.amountAppliedCentavos }

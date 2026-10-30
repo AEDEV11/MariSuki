@@ -35,15 +35,18 @@ class PosDatabaseMigrationTest {
 
         helper.runMigrationsAndValidate(
             dbName,
-            6,
+            8,
             true,
             com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_3_4,
             com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_4_5,
             com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_5_6,
+            com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_6_7,
+            com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_7_8,
         ).use { migrated ->
-            migrated.query("SELECT salesChannel FROM sales WHERE id = 'sale-legacy'").use { cursor ->
+            migrated.query("SELECT salesChannel, shiftId FROM sales WHERE id = 'sale-legacy'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("TINGI", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
             }
             migrated.query("SELECT `value` FROM app_settings WHERE `key` = 'preserve-marker'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
@@ -57,13 +60,49 @@ class PosDatabaseMigrationTest {
                 assertTrue(cursor.moveToFirst())
                 assertEquals(5, cursor.getInt(0))
             }
-            migrated.query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('store_profile', 'staff_accounts', 'staff_permissions', 'restricted_action_audit')").use { cursor ->
+            migrated.query("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('store_profile', 'staff_accounts', 'staff_permissions', 'restricted_action_audit', 'cashier_shifts', 'shift_cash_movements', 'shift_reports')").use { cursor ->
                 assertTrue(cursor.moveToFirst())
-                assertEquals(4, cursor.getInt(0))
+                assertEquals(7, cursor.getInt(0))
             }
             migrated.query("SELECT imageFileName FROM products WHERE id = 'product-legacy'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertTrue(cursor.isNull(0))
+            }
+        }
+        instrumentation.targetContext.deleteDatabase(dbName)
+    }
+
+    @Test
+    fun migrationSevenToEightPreservesPaymentReferenceAndAddsShiftTables() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val helper = MigrationTestHelper(
+            instrumentation,
+            com.aesprt.marisuki.data.local.PosDatabase::class.java,
+            emptyList(),
+            FrameworkSQLiteOpenHelperFactory(),
+        )
+        val dbName = "migration-v7-to-v8-test.db"
+        instrumentation.targetContext.deleteDatabase(dbName)
+        helper.createDatabase(dbName, 7).apply {
+            execSQL("INSERT INTO sales (`id`, `idempotencyKey`, `createdAtMillis`, `totalCentavos`, `customerId`, `status`, `cashierMode`, `cashierAccountId`, `salesChannel`) VALUES ('sale-v7', 'sale-key-v7', 2222, 5000, NULL, 'COMPLETED', 0, NULL, 'MIXED')")
+            execSQL("INSERT INTO payments (`id`, `saleId`, `method`, `amountAppliedCentavos`, `tenderedCentavos`, `changeCentavos`, `createdAtMillis`, `referenceNumber`) VALUES ('pay-v7', 'sale-v7', 'GCASH', 5000, 5000, 0, 2222, 'GC-998877')")
+            close()
+        }
+
+        helper.runMigrationsAndValidate(
+            dbName,
+            8,
+            true,
+            com.aesprt.marisuki.data.local.PosDatabase.MIGRATION_7_8,
+        ).use { migrated ->
+            migrated.query("SELECT referenceNumber FROM payments WHERE id = 'pay-v7'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("GC-998877", cursor.getString(0))
+            }
+            migrated.query("SELECT salesChannel, shiftId FROM sales WHERE id = 'sale-v7'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("MIXED", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
             }
         }
         instrumentation.targetContext.deleteDatabase(dbName)

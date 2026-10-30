@@ -1,5 +1,6 @@
 package com.aesprt.marisuki.feature.pos
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -91,11 +93,14 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Print
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -107,28 +112,79 @@ import com.aesprt.marisuki.R
 import com.aesprt.marisuki.data.local.dao.CustomerBalance
 import com.aesprt.marisuki.data.local.dao.ProductSummary
 import com.aesprt.marisuki.data.local.entity.ProductUnitEntity
+import com.aesprt.marisuki.domain.model.MAX_PAYMENT_REFERENCE_LENGTH
 import com.aesprt.marisuki.domain.model.PaymentMethod
 import com.aesprt.marisuki.domain.model.SaleChannel
 import com.aesprt.marisuki.domain.auth.PosPermission
+import com.aesprt.marisuki.feature.printing.ReceiptPrinter
 import com.aesprt.marisuki.feature.products.ProductPhoto
+import com.aesprt.marisuki.ui.components.PosEmptyState
+import com.aesprt.marisuki.ui.components.PosQuantityStepper
+import com.aesprt.marisuki.ui.components.ToolChip
+import com.aesprt.marisuki.ui.components.ToolIcon
 import com.aesprt.marisuki.ui.theme.PosLayout
+import com.aesprt.marisuki.ui.theme.PosRadius
 import com.aesprt.marisuki.ui.theme.PosSpacing
+import java.text.DateFormat
+import java.util.Date
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CashierScreen(viewModel: PosViewModel, expandedTablet: Boolean, mobileCameraScanning: Boolean) {
+fun CashierScreen(
+    viewModel: PosViewModel,
+    expandedTablet: Boolean,
+    mobileCameraScanning: Boolean,
+    onLogout: () -> Unit = {},
+) {
     val products by viewModel.products.collectAsStateWithLifecycle()
     val cart by viewModel.cart.collectAsStateWithLifecycle()
     val customers by viewModel.customers.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val submitting by viewModel.isSubmitting.collectAsStateWithLifecycle()
+    val shiftGate by viewModel.shiftGateState.collectAsStateWithLifecycle()
+    val historicalShiftReports by viewModel.historicalShiftReports.collectAsStateWithLifecycle()
     var search by rememberSaveable { mutableStateOf("") }
     var showCart by rememberSaveable { mutableStateOf(false) }
     var showCameraScanner by rememberSaveable { mutableStateOf(false) }
+    var showShiftDetails by rememberSaveable { mutableStateOf(false) }
+    var showRecordCashMovement by rememberSaveable { mutableStateOf(false) }
+    var showEndShiftDialog by rememberSaveable { mutableStateOf(false) }
+    var selectedOwnerShiftReport by remember { mutableStateOf<com.aesprt.marisuki.domain.model.ShiftSummary?>(null) }
     var selectedFilter by rememberSaveable { mutableStateOf("ALL") }
     var selectedCategory by rememberSaveable { mutableStateOf("") }
     var unitChoice by remember { mutableStateOf<Pair<ProductSummary, List<ProductUnitEntity>>?>(null) }
+
+    when (val currentGate = shiftGate) {
+        is com.aesprt.marisuki.domain.model.ShiftGateState.PreviousShiftOpen -> {
+            com.aesprt.marisuki.feature.shift.PreviousShiftClosureGateScreen(
+                state = currentGate,
+                viewModel = viewModel,
+                onLogout = onLogout,
+            )
+            return
+        }
+        is com.aesprt.marisuki.domain.model.ShiftGateState.NoActiveShift -> {
+            com.aesprt.marisuki.feature.shift.StartShiftScreen(
+                state = currentGate,
+                viewModel = viewModel,
+                onLogout = onLogout,
+            )
+            return
+        }
+        else -> Unit
+    }
+
+    val activeShiftSummary = (shiftGate as? com.aesprt.marisuki.domain.model.ShiftGateState.ActiveShift)?.summary
+    val latestClosedShift = if (shiftGate is com.aesprt.marisuki.domain.model.ShiftGateState.NotRequired) {
+        historicalShiftReports.firstOrNull()
+    } else {
+        null
+    }
+    val todayClosedShiftCount = remember(historicalShiftReports, latestClosedShift?.businessDate) {
+        val targetDate = latestClosedShift?.businessDate ?: return@remember 0
+        historicalShiftReports.count { it.businessDate == targetDate }
+    }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
     val total = viewModel.cartTotalCentavos
@@ -168,6 +224,22 @@ fun CashierScreen(viewModel: PosViewModel, expandedTablet: Boolean, mobileCamera
             horizontalArrangement = Arrangement.spacedBy(PosLayout.tabletPaneGap),
         ) {
             Column(Modifier.weight(1.55f).fillMaxHeight()) {
+                if (activeShiftSummary != null) {
+                    com.aesprt.marisuki.feature.shift.ActiveShiftStatusBanner(
+                        summary = activeShiftSummary,
+                        onOpenDetails = { showShiftDetails = true },
+                        onOpenCashMovement = { showRecordCashMovement = true },
+                        onOpenEndShift = { showEndShiftDialog = true },
+                    )
+                    Spacer(Modifier.height(PosSpacing.xs))
+                } else if (latestClosedShift != null) {
+                    com.aesprt.marisuki.feature.shift.OwnerShiftOverviewBanner(
+                        latestShift = latestClosedShift,
+                        todayClosedCount = todayClosedShiftCount,
+                        onViewReport = { selectedOwnerShiftReport = it },
+                    )
+                    Spacer(Modifier.height(PosSpacing.xs))
+                }
                 SalesCatalogHeading(filteredProducts.size)
                 Spacer(Modifier.height(PosSpacing.xs))
                 SearchBar(
@@ -203,6 +275,22 @@ fun CashierScreen(viewModel: PosViewModel, expandedTablet: Boolean, mobileCamera
         }
     } else {
         Column(Modifier.fillMaxSize().padding(horizontal = PosLayout.compactScreenPadding, vertical = PosSpacing.xs)) {
+            if (activeShiftSummary != null) {
+                com.aesprt.marisuki.feature.shift.ActiveShiftStatusBanner(
+                    summary = activeShiftSummary,
+                    onOpenDetails = { showShiftDetails = true },
+                    onOpenCashMovement = { showRecordCashMovement = true },
+                    onOpenEndShift = { showEndShiftDialog = true },
+                )
+                Spacer(Modifier.height(PosSpacing.xs))
+            } else if (latestClosedShift != null) {
+                com.aesprt.marisuki.feature.shift.OwnerShiftOverviewBanner(
+                    latestShift = latestClosedShift,
+                    todayClosedCount = todayClosedShiftCount,
+                    onViewReport = { selectedOwnerShiftReport = it },
+                )
+                Spacer(Modifier.height(PosSpacing.xs))
+            }
             SalesCatalogHeading(filteredProducts.size)
             Spacer(Modifier.height(PosSpacing.sm))
             SearchBar(
@@ -264,6 +352,42 @@ fun CashierScreen(viewModel: PosViewModel, expandedTablet: Boolean, mobileCamera
             },
         )
     }
+    if (activeShiftSummary != null && showShiftDetails) {
+        com.aesprt.marisuki.feature.shift.ShiftDetailsDialog(
+            summary = activeShiftSummary,
+            onRecordMovement = {
+                showShiftDetails = false
+                showRecordCashMovement = true
+            },
+            onEndShift = {
+                showShiftDetails = false
+                showEndShiftDialog = true
+            },
+            onDismiss = { showShiftDetails = false },
+        )
+    }
+    if (activeShiftSummary != null && showRecordCashMovement) {
+        com.aesprt.marisuki.feature.shift.RecordCashMovementDialog(
+            summary = activeShiftSummary,
+            viewModel = viewModel,
+            onDismiss = { showRecordCashMovement = false },
+        )
+    }
+    if (activeShiftSummary != null && showEndShiftDialog) {
+        com.aesprt.marisuki.feature.shift.EndShiftReconciliationDialog(
+            summary = activeShiftSummary,
+            viewModel = viewModel,
+            onDismiss = { showEndShiftDialog = false },
+        )
+    }
+    selectedOwnerShiftReport?.let { current ->
+        val latest = historicalShiftReports.find { it.shiftId == current.shiftId } ?: current
+        com.aesprt.marisuki.feature.shift.EndShiftReportSummaryDialog(
+            summary = latest,
+            viewModel = viewModel,
+            onDismiss = { selectedOwnerShiftReport = null },
+        )
+    }
 }
 
 @Composable
@@ -304,7 +428,7 @@ internal fun SearchBar(
                 }
             }
         },
-        shape = RoundedCornerShape(18.dp),
+        shape = PosRadius.input,
         colors = OutlinedTextFieldDefaults.colors(
             focusedContainerColor = MaterialTheme.colorScheme.surface,
             unfocusedContainerColor = MaterialTheme.colorScheme.surface,
@@ -331,36 +455,29 @@ internal fun ProductFilters(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val chipColors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-            selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary,
+        ToolChip(
+            selected = selectedFilter == "ALL",
+            onClick = { onFilter("ALL") },
+            label = { Text(stringResource(R.string.filter_all)) },
         )
-        FilterChip(
-            selected = selectedFilter == "ALL", onClick = { onFilter("ALL") },
-            label = { Text(stringResource(R.string.filter_all), style = MaterialTheme.typography.labelLarge) },
-            shape = RoundedCornerShape(12.dp), colors = chipColors,
+        ToolChip(
+            selected = selectedFilter == "FAVORITES",
+            onClick = { onFilter("FAVORITES") },
+            label = { Text(stringResource(R.string.filter_favorites)) },
+            leadingIcon = { Icon(Icons.Filled.StarBorder, null, Modifier.size(16.dp)) },
         )
-        FilterChip(
-            selected = selectedFilter == "FAVORITES", onClick = { onFilter("FAVORITES") },
-            label = { Text(stringResource(R.string.filter_favorites), style = MaterialTheme.typography.labelLarge) },
-            leadingIcon = { Icon(Icons.Filled.StarBorder, null, Modifier.size(18.dp)) },
-            shape = RoundedCornerShape(12.dp), colors = chipColors,
+        ToolChip(
+            selected = selectedFilter == "FREQUENT",
+            onClick = { onFilter("FREQUENT") },
+            label = { Text(stringResource(R.string.filter_frequently_sold)) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.TrendingUp, null, Modifier.size(16.dp)) },
         )
-        FilterChip(
-            selected = selectedFilter == "FREQUENT", onClick = { onFilter("FREQUENT") },
-            label = { Text(stringResource(R.string.filter_frequently_sold), style = MaterialTheme.typography.labelLarge) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Filled.TrendingUp, null, Modifier.size(18.dp)) },
-            shape = RoundedCornerShape(12.dp), colors = chipColors,
-        )
-        if (categories.isNotEmpty()) VerticalDivider(Modifier.height(24.dp).padding(horizontal = 4.dp))
+        if (categories.isNotEmpty()) VerticalDivider(Modifier.height(22.dp).padding(horizontal = 2.dp), color = MaterialTheme.colorScheme.outlineVariant)
         categories.forEach { category ->
-            FilterChip(
+            ToolChip(
                 selected = selectedCategory == category,
                 onClick = { onCategory(if (selectedCategory == category) "" else category) },
-                label = { Text(category, style = MaterialTheme.typography.labelLarge) },
-                shape = RoundedCornerShape(12.dp),
+                label = { Text(category) },
             )
         }
     }
@@ -375,36 +492,14 @@ internal fun ProductGrid(
     onFavoriteClick: ((ProductSummary) -> Unit)? = null,
 ) {
     if (products.isEmpty()) {
-        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(
-                modifier = Modifier.widthIn(max = 360.dp).padding(PosSpacing.major),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
-            ) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    modifier = Modifier.size(72.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            if (hasSearch) Icons.Filled.Inventory2 else Icons.Filled.ShoppingCart,
-                            contentDescription = null,
-                            modifier = Modifier.size(36.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-                }
-                Text(
-                    stringResource(if (hasSearch) R.string.cashier_empty_search else R.string.cashier_empty_products),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+        PosEmptyState(
+            icon = if (hasSearch) Icons.Filled.Inventory2 else Icons.Filled.ShoppingCart,
+            title = stringResource(if (hasSearch) R.string.cashier_empty_search else R.string.cashier_empty_products),
+            modifier = modifier,
+        )
     } else {
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 156.dp),
+            columns = GridCells.Adaptive(minSize = 152.dp),
             modifier = modifier,
             horizontalArrangement = Arrangement.spacedBy(PosSpacing.xs),
             verticalArrangement = Arrangement.spacedBy(PosSpacing.xs),
@@ -431,43 +526,61 @@ internal fun ProductTile(product: ProductSummary, onClick: () -> Unit, onFavorit
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(containerColor = colors.surface, disabledContainerColor = colors.surfaceContainerLow),
-        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = .7f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 2.dp),
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 1.dp),
     ) {
         ProductPhoto(
             product.imageFileName,
-            Modifier.fillMaxWidth().aspectRatio(1.4f),
+            Modifier.fillMaxWidth().aspectRatio(1.45f),
             contentScale = ContentScale.Fit,
-            containerColor = colors.primaryContainer.copy(alpha = .45f),
+            containerColor = colors.surfaceContainerLow,
             shape = RectangleShape,
         )
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 12.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(product.name, Modifier.heightIn(min = 40.dp), style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        HorizontalDivider(color = colors.outlineVariant.copy(alpha = 0.6f))
+        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp).padding(top = 10.dp, bottom = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                product.name,
+                Modifier.heightIn(min = 38.dp),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
             FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(PosViewModel.formatPeso(product.baseUnitPriceCentavos),
+                Text(
+                    PosViewModel.formatPeso(product.baseUnitPriceCentavos),
                     style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
-                    color = colors.primary, fontWeight = FontWeight.Bold)
-                Text("/ ${product.baseUnitLabel}", Modifier.align(Alignment.CenterVertically),
-                    style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                    color = colors.primary,
+                    fontWeight = FontWeight.Bold,
+                )
+                Text(
+                    "/ ${product.baseUnitLabel}",
+                    Modifier.align(Alignment.CenterVertically),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                )
             }
-            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 44.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 Box(Modifier.size(6.dp).background(when { !enabled -> colors.error; lowStock -> colors.tertiary; else -> colors.primary }, CircleShape))
                 Text(
                     if (!enabled) stringResource(R.string.out_of_stock)
                     else "${PosViewModel.formatQuantity(product.onHandMilliUnits)} ${product.baseUnitLabel}",
-                    Modifier.weight(1f), style = MaterialTheme.typography.labelSmall,
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall,
                     color = if (!enabled) colors.error else colors.onSurfaceVariant,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (onFavoriteClick != null) IconButton(onClick = onFavoriteClick, modifier = Modifier.size(PosLayout.minimumTouchTarget)) {
-                    Icon(if (product.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                if (onFavoriteClick != null) IconButton(onClick = onFavoriteClick, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        if (product.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
                         stringResource(if (product.favorite) R.string.remove_favorite else R.string.add_favorite),
                         tint = if (product.favorite) colors.primary else colors.onSurfaceVariant,
-                        modifier = Modifier.size(22.dp))
-                } else if (product.favorite) Icon(Icons.Filled.Star, stringResource(R.string.filter_favorites), Modifier.size(20.dp), tint = colors.primary)
+                        modifier = Modifier.size(20.dp),
+                    )
+                } else if (product.favorite) Icon(Icons.Filled.Star, stringResource(R.string.filter_favorites), Modifier.size(18.dp), tint = colors.primary)
             }
         }
     }
@@ -477,9 +590,11 @@ internal fun ProductTile(product: ProductSummary, onClick: () -> Unit, onFavorit
 internal fun CartSummaryButton(cart: List<CartLineState>, total: Long, onClick: () -> Unit) {
     val hasItems = cart.isNotEmpty()
     Button(
-        onClick = onClick, enabled = hasItems,
-        modifier = Modifier.fillMaxWidth().padding(top = 12.dp).heightIn(min = 64.dp),
-        shape = RoundedCornerShape(18.dp), contentPadding = PaddingValues(horizontal = 18.dp, vertical = 12.dp),
+        onClick = onClick,
+        enabled = hasItems,
+        modifier = Modifier.fillMaxWidth().padding(top = 10.dp).heightIn(min = 58.dp),
+        shape = PosRadius.card,
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary,
@@ -495,7 +610,7 @@ internal fun CartSummaryButton(cart: List<CartLineState>, total: Long, onClick: 
             }
             if (hasItems) {
                 Text(PosViewModel.formatPeso(total), style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
-                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(20.dp))
+                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
             }
         }
     }
@@ -513,10 +628,32 @@ private fun CartPanel(
 ) {
     var methodKey by rememberSaveable { mutableStateOf(PaymentMethod.CASH.name) }
     var amount by rememberSaveable { mutableStateOf("") }
+    var referenceNumber by rememberSaveable { mutableStateOf("") }
     var selectedCustomerId by rememberSaveable { mutableStateOf<String?>(null) }
-    var salesChannel by rememberSaveable { mutableStateOf(SaleChannel.TINGI) }
+    // A sale can mix tingi and wholesale (pakyawan) items, so more than one type may be selected.
+    var channelKeys by rememberSaveable { mutableStateOf(listOf(SaleChannel.TINGI.name)) }
     var customerMenu by remember { mutableStateOf(false) }
+    var showReceiptPreview by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val method = PaymentMethod.entries.firstOrNull { it.name == methodKey }
+    val isEWallet = method == PaymentMethod.GCASH || method == PaymentMethod.MAYA
+    val salesChannel = when {
+        SaleChannel.TINGI.name in channelKeys && SaleChannel.WHOLESALE.name in channelKeys -> SaleChannel.MIXED
+        SaleChannel.WHOLESALE.name in channelKeys -> SaleChannel.WHOLESALE
+        else -> SaleChannel.TINGI
+    }
+    // GCash and Maya are paid in full by default: keep the received amount equal to the cart total.
+    LaunchedEffect(total, methodKey) {
+        if (isEWallet) amount = PosViewModel.formatAmountInput(total)
+    }
+    // Never carry an e-wallet reference or open preview dialog over to the next customer.
+    LaunchedEffect(cart.isEmpty()) {
+        if (cart.isEmpty()) {
+            referenceNumber = ""
+            showReceiptPreview = false
+        }
+    }
     val enteredAmount = if (amount.isBlank() && method != null) total else PosViewModel.parseCentavos(amount)
     val appliedNow = when {
         method == null -> 0L
@@ -528,80 +665,98 @@ private fun CartPanel(
     val customerSelected = customers.any { it.id == selectedCustomerId }
     val requiresCustomer = method == null || balance > 0
     val validTender = method == null || (enteredAmount != null && enteredAmount > 0 && (method == PaymentMethod.CASH || enteredAmount <= total))
-    val canComplete = cart.isNotEmpty() && !submitting && validTender && (!requiresCustomer || customerSelected)
+    val validReference = !isEWallet || referenceNumber.isNotBlank()
+    val canComplete = cart.isNotEmpty() && !submitting && validTender && validReference && (!requiresCustomer || customerSelected)
 
     val products by viewModel.allProducts.collectAsStateWithLifecycle()
     val photos = remember(products) { products.associate { it.id to it.imageFileName } }
     val colors = MaterialTheme.colorScheme
     Surface(
-        shape = RoundedCornerShape(if (onClose == null) 24.dp else 0.dp),
+        shape = if (onClose == null) PosRadius.panel else RoundedCornerShape(0.dp),
         color = colors.surface,
         border = if (onClose == null) BorderStroke(1.dp, colors.outlineVariant) else null,
         modifier = modifier,
     ) {
-        Column(Modifier.padding(horizontal = 20.dp).padding(top = 12.dp, bottom = 16.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = colors.primary, contentColor = colors.onPrimary, shape = RoundedCornerShape(14.dp)) {
-                    Icon(Icons.Default.ShoppingCart, null, Modifier.padding(12.dp).size(22.dp))
-                }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp).padding(top = 14.dp, bottom = 14.dp).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                ToolIcon(Icons.Default.ShoppingCart)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(stringResource(R.string.cart_title), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     Text(pluralStringResource(R.plurals.checkout_item_count, cart.size, cart.size), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
                 if (onClose != null) IconButton(onClick = onClose) { Icon(Icons.Default.Close, stringResource(R.string.close)) }
             }
+            HorizontalDivider(color = colors.outlineVariant)
             LazyColumn(
                 Modifier.fillMaxWidth().weight(1f, fill = onClose == null),
-                verticalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+                contentPadding = PaddingValues(bottom = 4.dp),
             ) {
                 if (cart.isEmpty()) item {
-                    Text(stringResource(R.string.cart_empty), Modifier.padding(vertical = 24.dp), color = colors.onSurfaceVariant)
+                    Text(stringResource(R.string.cart_empty), Modifier.padding(vertical = 20.dp), color = colors.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 }
                 items(cart, key = { "${it.productId}:${it.unitId}" }) { line ->
                     CartLineRow(line, viewModel, photos[line.productId])
                 }
                 if (cart.isNotEmpty()) item {
-                    Surface(color = colors.surfaceContainerLow, shape = RoundedCornerShape(20.dp)) {
-                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Surface(
+                        color = colors.surfaceContainerLow,
+                        shape = PosRadius.card,
+                        border = BorderStroke(1.dp, colors.outlineVariant),
+                    ) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(stringResource(R.string.sale_channel_label), style = MaterialTheme.typography.labelLarge, color = colors.onSurfaceVariant)
+                            Text(stringResource(R.string.sale_channel_multi_hint), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SaleChannel.entries.forEach { choice ->
-                                    FilterChip(
-                                        selected = salesChannel == choice, onClick = { salesChannel = choice },
-                                        leadingIcon = if (salesChannel == choice) ({ Icon(Icons.Default.Check, null, Modifier.size(18.dp)) }) else null,
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            containerColor = colors.surface, selectedContainerColor = colors.primary,
-                                            selectedLabelColor = colors.onPrimary, selectedLeadingIconColor = colors.onPrimary),
+                                listOf(SaleChannel.TINGI, SaleChannel.WHOLESALE).forEach { choice ->
+                                    val selected = choice.name in channelKeys
+                                    ToolChip(
+                                        selected = selected,
+                                        onClick = {
+                                            // Toggle, but always keep at least one sale type selected.
+                                            channelKeys = when {
+                                                !selected -> channelKeys + choice.name
+                                                channelKeys.size > 1 -> channelKeys - choice.name
+                                                else -> channelKeys
+                                            }
+                                        },
                                         label = { Text(stringResource(if (choice == SaleChannel.TINGI) R.string.sale_channel_tingi else R.string.sale_channel_wholesale)) },
-                                        modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.weight(1f),
                                     )
                                 }
                             }
                             HorizontalDivider(color = colors.outlineVariant)
                             Text(stringResource(R.string.payment_method), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                            PaymentChoiceChips(method, onSelect = { methodKey = it?.name ?: "UTANG" })
+                            PaymentChoiceChips(method, onSelect = { choice ->
+                                methodKey = choice?.name ?: "UTANG"
+                                // Cash needs the actual bills received; e-wallets and utang default to the full total.
+                                amount = when (choice) {
+                                    PaymentMethod.CASH -> ""
+                                    else -> PosViewModel.formatAmountInput(total)
+                                }
+                            })
                             if (method == null || balance > 0) {
                                 Box {
                                     OutlinedButton(
                                         onClick = { customerMenu = true },
                                         modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = PosRadius.button,
                                     ) {
                                         Row(
                                             Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
+                                            verticalAlignment = Alignment.CenterVertically,
                                         ) {
                                             val selected = customers.firstOrNull { it.id == selectedCustomerId }
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                             ) {
                                                 Icon(Icons.Filled.Person, contentDescription = null, modifier = Modifier.size(18.dp))
                                                 Text(
                                                     selected?.name ?: stringResource(R.string.choose_customer),
                                                     maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis
+                                                    overflow = TextOverflow.Ellipsis,
                                                 )
                                             }
                                             Icon(Icons.Filled.ArrowDropDown, contentDescription = null)
@@ -619,12 +774,59 @@ private fun CartPanel(
                             }
 
                             if (method != null) OutlinedTextField(
-                                value = amount, onValueChange = { amount = it },
-                                modifier = Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.amount_received)) },
+                                value = amount,
+                                onValueChange = { amount = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.amount_received)) },
                                 placeholder = { Text(PosViewModel.formatPeso(total).removePrefix("₱").trim()) },
-                                prefix = { Text("₱ ") }, singleLine = true, shape = RoundedCornerShape(14.dp),
-                                colors = OutlinedTextFieldDefaults.colors(unfocusedContainerColor = colors.surface, focusedContainerColor = colors.surface),
+                                prefix = { Text("₱ ") },
+                                singleLine = true,
+                                shape = PosRadius.input,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = colors.surface,
+                                    focusedContainerColor = colors.surface,
+                                    unfocusedBorderColor = colors.outlineVariant,
+                                ),
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                            ) else OutlinedTextField(
+                                // Utang records the whole purchase as the customer's balance.
+                                value = PosViewModel.formatAmountInput(total),
+                                onValueChange = {},
+                                readOnly = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.utang_amount)) },
+                                prefix = { Text("₱ ") },
+                                singleLine = true,
+                                shape = PosRadius.input,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = colors.surfaceContainerLow,
+                                    focusedContainerColor = colors.surfaceContainerLow,
+                                    unfocusedBorderColor = colors.outlineVariant,
+                                ),
+                            )
+                            if (isEWallet) OutlinedTextField(
+                                value = referenceNumber,
+                                onValueChange = { value ->
+                                    referenceNumber = value.filterNot { it == '\n' || it == '\r' }.take(MAX_PAYMENT_REFERENCE_LENGTH)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.reference_number_required)) },
+                                isError = referenceNumber.isBlank(),
+                                supportingText = {
+                                    Text(
+                                        stringResource(
+                                            if (method == PaymentMethod.GCASH) R.string.reference_number_help_gcash else R.string.reference_number_help_maya,
+                                        ),
+                                    )
+                                },
+                                singleLine = true,
+                                shape = PosRadius.input,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    unfocusedContainerColor = colors.surface,
+                                    focusedContainerColor = colors.surface,
+                                    unfocusedBorderColor = colors.outlineVariant,
+                                ),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
                             )
                             if (method == PaymentMethod.CASH) FinancialLine(stringResource(R.string.change_due), PosViewModel.formatPeso(change), emphasize = true)
                             if (balance > 0) FinancialLine(stringResource(R.string.amount_due), PosViewModel.formatPeso(balance), emphasize = true)
@@ -632,45 +834,421 @@ private fun CartPanel(
                     }
                 }
             }
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 HorizontalDivider(color = colors.outlineVariant)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(stringResource(R.string.total), style = MaterialTheme.typography.titleSmall, color = colors.onSurfaceVariant)
                     }
-                    Text(PosViewModel.formatPeso(total), style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"), color = colors.primary, fontWeight = FontWeight.Bold)
+                    Text(
+                        PosViewModel.formatPeso(total),
+                        style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
+                        color = colors.primary,
+                        fontWeight = FontWeight.Bold,
+                    )
                 }
                 Button(
-                    onClick = { viewModel.checkout(method, amount, selectedCustomerId, salesChannel) }, enabled = canComplete,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(16.dp),
+                    onClick = { showReceiptPreview = true },
+                    enabled = canComplete,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                    shape = PosRadius.button,
                 ) {
                     if (submitting) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp, color = colors.onPrimary)
                     else {
-                        Icon(Icons.Default.CheckCircle, null, Modifier.size(20.dp))
-                        Spacer(Modifier.width(10.dp))
+                        Icon(Icons.Default.ReceiptLong, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
                         Text(stringResource(R.string.checkout_complete_sale), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }
         }
     }
+
+    if (showReceiptPreview && cart.isNotEmpty()) {
+        val selectedCustomerName = customers.firstOrNull { it.id == selectedCustomerId }?.name
+        CheckoutReceiptPreviewDialog(
+            cart = cart,
+            total = total,
+            salesChannel = salesChannel,
+            method = method,
+            enteredAmount = enteredAmount,
+            appliedNow = appliedNow,
+            change = change,
+            balance = balance,
+            customerName = selectedCustomerName,
+            referenceNumber = referenceNumber.takeIf { isEWallet }?.trim(),
+            submitting = submitting,
+            onDismiss = { if (!submitting) showReceiptPreview = false },
+            onCompleteWithoutPrint = {
+                viewModel.checkout(
+                    method = method,
+                    amountText = amount,
+                    customerId = selectedCustomerId,
+                    salesChannel = salesChannel,
+                    referenceNumber = referenceNumber.takeIf { isEWallet },
+                    onCompleted = { showReceiptPreview = false },
+                )
+            },
+            onPrintAndComplete = {
+                viewModel.checkout(
+                    method = method,
+                    amountText = amount,
+                    customerId = selectedCustomerId,
+                    salesChannel = salesChannel,
+                    referenceNumber = referenceNumber.takeIf { isEWallet },
+                    onCompleted = { result ->
+                        showReceiptPreview = false
+                        coroutineScope.launch {
+                            runCatching {
+                                val receipt = viewModel.saleReceipt(
+                                    saleId = result.saleId,
+                                    customerName = selectedCustomerName,
+                                    forCheckoutPrint = true,
+                                ) ?: error("Receipt unavailable")
+                                ReceiptPrinter.print(context, receipt)
+                            }.onFailure {
+                                Toast.makeText(
+                                    context,
+                                    context.getString(R.string.receipt_print_failed),
+                                    Toast.LENGTH_LONG,
+                                ).show()
+                            }
+                        }
+                    },
+                )
+            },
+        )
+    }
+}
+
+@Composable
+private fun CheckoutReceiptPreviewDialog(
+    cart: List<CartLineState>,
+    total: Long,
+    salesChannel: SaleChannel,
+    method: PaymentMethod?,
+    enteredAmount: Long?,
+    appliedNow: Long,
+    change: Long,
+    balance: Long,
+    customerName: String?,
+    referenceNumber: String?,
+    submitting: Boolean,
+    onDismiss: () -> Unit,
+    onCompleteWithoutPrint: () -> Unit,
+    onPrintAndComplete: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val previewTimestamp = remember {
+        DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date())
+    }
+    val channelLabel = stringResource(
+        when (salesChannel) {
+            SaleChannel.TINGI -> R.string.sale_channel_tingi
+            SaleChannel.WHOLESALE -> R.string.sale_channel_wholesale
+            SaleChannel.MIXED -> R.string.sale_channel_mixed
+        },
+    )
+    val paymentLabel = stringResource(
+        when (method) {
+            PaymentMethod.CASH -> R.string.method_cash
+            PaymentMethod.GCASH -> R.string.method_gcash
+            PaymentMethod.MAYA -> R.string.method_maya
+            null -> R.string.method_credit
+        },
+    )
+    val tenderedDisplay = when (method) {
+        PaymentMethod.CASH -> PosViewModel.formatPeso(enteredAmount ?: total)
+        PaymentMethod.GCASH, PaymentMethod.MAYA -> PosViewModel.formatPeso(appliedNow)
+        null -> PosViewModel.formatPeso(0L)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = PosRadius.dialog,
+        containerColor = colors.surface,
+        title = {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ToolIcon(Icons.Default.ReceiptLong)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        stringResource(R.string.receipt_preview_title),
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        stringResource(R.string.receipt_preview_subtitle),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Receipt paper preview container
+                Surface(
+                    shape = PosRadius.card,
+                    color = colors.surfaceContainerLow,
+                    border = BorderStroke(1.dp, colors.outlineVariant),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Text(
+                                "${stringResource(R.string.app_name)} · ${stringResource(R.string.brand_tagline)}",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                            )
+                            Text(
+                                previewTimestamp,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = colors.onSurfaceVariant,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
+
+                        HorizontalDivider(color = colors.outlineVariant)
+
+                        ReceiptPreviewMetaRow(
+                            label = stringResource(R.string.sale_channel_label),
+                            value = channelLabel,
+                        )
+                        ReceiptPreviewMetaRow(
+                            label = stringResource(R.string.customer_name),
+                            value = customerName ?: stringResource(R.string.walk_in_customer),
+                        )
+
+                        HorizontalDivider(color = colors.outlineVariant)
+
+                        cart.forEach { line ->
+                            val lineTotal = PosViewModel.calculateAmount(line.unitPriceCentavos, line.quantityMilliUnits)
+                            val qtyLabel = "${PosViewModel.formatQuantity(line.quantityMilliUnits)} ${line.unitLabel} × ${PosViewModel.formatPeso(line.unitPriceCentavos)}"
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(2.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.Top,
+                                ) {
+                                    Text(
+                                        line.productName,
+                                        modifier = Modifier.weight(1f).padding(end = 8.dp),
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Text(
+                                        PosViewModel.formatPeso(lineTotal),
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontFeatureSettings = "tnum"),
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                                Text(
+                                    qtyLabel,
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFeatureSettings = "tnum"),
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+                        }
+
+                        HorizontalDivider(color = colors.outlineVariant)
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                stringResource(R.string.total),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                PosViewModel.formatPeso(total),
+                                style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                                fontWeight = FontWeight.Bold,
+                                color = colors.primary,
+                            )
+                        }
+
+                        ReceiptPreviewMetaRow(
+                            label = stringResource(R.string.payment_method),
+                            value = paymentLabel,
+                        )
+                        if (method != null) {
+                            ReceiptPreviewMetaRow(
+                                label = stringResource(R.string.amount_received),
+                                value = tenderedDisplay,
+                                tabular = true,
+                            )
+                        }
+                        if (!referenceNumber.isNullOrBlank()) {
+                            ReceiptPreviewMetaRow(
+                                label = stringResource(R.string.reference_number),
+                                value = referenceNumber,
+                                tabular = true,
+                            )
+                        }
+                        if (method == PaymentMethod.CASH) {
+                            ReceiptPreviewMetaRow(
+                                label = stringResource(R.string.change_due),
+                                value = PosViewModel.formatPeso(change),
+                                emphasize = true,
+                                tabular = true,
+                            )
+                        }
+                        if (balance > 0L) {
+                            ReceiptPreviewMetaRow(
+                                label = stringResource(R.string.utang_amount),
+                                value = PosViewModel.formatPeso(balance),
+                                emphasize = true,
+                                tabular = true,
+                            )
+                        }
+
+                        HorizontalDivider(color = colors.outlineVariant)
+
+                        Text(
+                            stringResource(R.string.receipt_thank_you),
+                            modifier = Modifier.fillMaxWidth().padding(top = 2.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant,
+                            textAlign = TextAlign.Center,
+                        )
+                    }
+                }
+
+                // Action buttons: Print & Complete Sale, Complete without Printing, Cancel
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Button(
+                        onClick = onPrintAndComplete,
+                        enabled = !submitting,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
+                        shape = PosRadius.button,
+                    ) {
+                        if (submitting) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                                color = colors.onPrimary,
+                            )
+                        } else {
+                            Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                stringResource(R.string.checkout_print_and_complete),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onCompleteWithoutPrint,
+                        enabled = !submitting,
+                        modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
+                        shape = PosRadius.button,
+                    ) {
+                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(
+                            stringResource(R.string.checkout_complete_without_print),
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !submitting,
+                modifier = Modifier.heightIn(min = PosLayout.minimumTouchTarget),
+            ) {
+                Text(stringResource(R.string.cancel))
+            }
+        },
+    )
+}
+
+@Composable
+private fun ReceiptPreviewMetaRow(
+    label: String,
+    value: String,
+    emphasize: Boolean = false,
+    tabular: Boolean = false,
+) {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.weight(1f).padding(end = 8.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = (if (emphasize) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodySmall).let {
+                if (tabular) it.copy(fontFeatureSettings = "tnum") else it
+            },
+            fontWeight = if (emphasize) FontWeight.Bold else FontWeight.Medium,
+            color = if (emphasize) colors.onSurface else colors.onSurfaceVariant,
+        )
+    }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun PaymentChoiceChips(method: PaymentMethod?, onSelect: (PaymentMethod?) -> Unit) {
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        val colors = FilterChipDefaults.filterChipColors(
-            containerColor = MaterialTheme.colorScheme.surface,
-            selectedContainerColor = MaterialTheme.colorScheme.primary,
-            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-        )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         PaymentMethod.entries.forEach { choice ->
-            FilterChip(selected = method == choice, onClick = { onSelect(choice) }, shape = RoundedCornerShape(12.dp), colors = colors,
-                label = { Text(stringResource(when (choice) { PaymentMethod.CASH -> R.string.method_cash; PaymentMethod.GCASH -> R.string.method_gcash; PaymentMethod.MAYA -> R.string.method_maya })) })
+            ToolChip(
+                selected = method == choice,
+                onClick = { onSelect(choice) },
+                label = {
+                    Text(
+                        stringResource(
+                            when (choice) {
+                                PaymentMethod.CASH -> R.string.method_cash
+                                PaymentMethod.GCASH -> R.string.method_gcash
+                                PaymentMethod.MAYA -> R.string.method_maya
+                            },
+                        ),
+                    )
+                },
+            )
         }
-        FilterChip(selected = method == null, onClick = { onSelect(null) }, shape = RoundedCornerShape(12.dp), colors = colors,
-            label = { Text(stringResource(R.string.method_credit)) })
+        ToolChip(
+            selected = method == null,
+            onClick = { onSelect(null) },
+            label = { Text(stringResource(R.string.method_credit)) },
+        )
     }
 }
 
@@ -680,48 +1258,47 @@ private fun CartLineRow(line: CartLineState, viewModel: PosViewModel, imageFileN
     var quantityText by remember(line.productId, line.unitId) { mutableStateOf(PosViewModel.formatQuantity(line.quantityMilliUnits)) }
     LaunchedEffect(line.quantityMilliUnits) { quantityText = PosViewModel.formatQuantity(line.quantityMilliUnits) }
     val colors = MaterialTheme.colorScheme
-    Surface(shape = RoundedCornerShape(20.dp), color = colors.surface, border = BorderStroke(1.dp, colors.outlineVariant), modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Surface(
+        shape = PosRadius.card,
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.outlineVariant),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                ProductPhoto(imageFileName, Modifier.size(56.dp), contentScale = ContentScale.Fit, containerColor = colors.primaryContainer.copy(alpha = .4f))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                ProductPhoto(
+                    imageFileName,
+                    Modifier.size(48.dp),
+                    contentScale = ContentScale.Fit,
+                    containerColor = colors.surfaceContainerLow,
+                    shape = RoundedCornerShape(10.dp),
+                )
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(line.productName, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("${line.unitLabel} · ${PosViewModel.formatPeso(line.unitPriceCentavos)}", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
-                IconButton(onClick = { viewModel.removeFromCart(line.productId, line.unitId) }) {
+                IconButton(onClick = { viewModel.removeFromCart(line.productId, line.unitId) }, modifier = Modifier.size(40.dp)) {
                     Icon(Icons.Default.DeleteOutline, stringResource(R.string.remove_item), tint = colors.error, modifier = Modifier.size(20.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Surface(color = colors.surfaceContainerLow, shape = RoundedCornerShape(14.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = { viewModel.updateCartQuantity(line.productId, line.unitId, -1_000) }) {
-                            Icon(Icons.Default.Remove, stringResource(R.string.decrease_quantity), Modifier.size(18.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                PosQuantityStepper(
+                    valueText = quantityText,
+                    onValueChange = { value ->
+                        quantityText = value
+                        PosViewModel.parseQuantityMilliUnits(value)?.let { parsed ->
+                            if (!line.wholeSellQuantityOnly || parsed % 1_000L == 0L) viewModel.setCartQuantity(line.productId, line.unitId, parsed)
+                            else quantityText = PosViewModel.formatQuantity(line.quantityMilliUnits)
                         }
-                        OutlinedTextField(
-                            value = quantityText,
-                            onValueChange = { value ->
-                                quantityText = value
-                                PosViewModel.parseQuantityMilliUnits(value)?.let { parsed ->
-                                    if (!line.wholeSellQuantityOnly || parsed % 1_000L == 0L) viewModel.setCartQuantity(line.productId, line.unitId, parsed)
-                                    else quantityText = PosViewModel.formatQuantity(line.quantityMilliUnits)
-                                }
-                            },
-                            modifier = Modifier.width(64.dp), shape = RoundedCornerShape(10.dp), singleLine = true,
-                            textStyle = MaterialTheme.typography.bodyLarge.copy(textAlign = TextAlign.Center, fontFeatureSettings = "tnum"),
-                            colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = colors.outlineVariant),
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal, imeAction = ImeAction.Done),
-                            keyboardActions = KeyboardActions(onDone = {
-                                val valid = PosViewModel.parseQuantityMilliUnits(quantityText)
-                                if (valid == null || valid <= 0) quantityText = PosViewModel.formatQuantity(line.quantityMilliUnits)
-                            }),
-                        )
-                        IconButton(onClick = { viewModel.updateCartQuantity(line.productId, line.unitId, 1_000) }) {
-                            Icon(Icons.Default.Add, stringResource(R.string.increase_quantity), Modifier.size(18.dp))
-                        }
-                    }
-                }
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    },
+                    onDecrease = { viewModel.updateCartQuantity(line.productId, line.unitId, -1_000) },
+                    onIncrease = { viewModel.updateCartQuantity(line.productId, line.unitId, 1_000) },
+                    onDone = {
+                        val valid = PosViewModel.parseQuantityMilliUnits(quantityText)
+                        if (valid == null || valid <= 0) quantityText = PosViewModel.formatQuantity(line.quantityMilliUnits)
+                    },
+                )
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(stringResource(R.string.checkout_line_total), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
                     Text(PosViewModel.formatPeso(total), style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold, color = colors.primary)
                 }

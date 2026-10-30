@@ -3,6 +3,7 @@ package com.aesprt.marisuki.ui.navigation
 import android.content.res.Configuration
 import java.util.Locale
 import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +11,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -26,6 +29,7 @@ import androidx.compose.material.icons.filled.PointOfSale
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -41,6 +45,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.material3.adaptive.currentWindowAdaptiveInfoV2
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -157,8 +162,11 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
     val snackbar = remember { SnackbarHostState() }
     val resources = LocalResources.current
     val authUiState by authViewModel.state.collectAsStateWithLifecycle()
+    val shiftGate by viewModel.shiftGateState.collectAsStateWithLifecycle()
+    val lastClosedShiftReport by viewModel.lastClosedShiftReport.collectAsStateWithLifecycle()
     var accountMenuExpanded by rememberSaveable { mutableStateOf(false) }
-    val accountName = (authUiState.destination as? AuthDestination.SignedIn)?.account?.displayName.orEmpty()
+    val signedInAccount = (authUiState.destination as? AuthDestination.SignedIn)?.account
+    val accountName = signedInAccount?.displayName.orEmpty()
 
     LaunchedEffect(viewModel, resources) {
         viewModel.events.collect { event ->
@@ -179,9 +187,41 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                 PosEvent.BackupSaved -> resources.getString(R.string.backup_saved)
                 PosEvent.BackupRestored -> resources.getString(R.string.backup_restored)
                 PosEvent.ReportExported -> resources.getString(R.string.report_exported)
+                is PosEvent.ShiftStarted -> "Shift ${event.summary.shiftId} started."
+                is PosEvent.ShiftClosed -> "Shift ${event.summary.shiftId} closed and reconciled."
             }
             snackbar.showSnackbar(message)
         }
+    }
+
+    lastClosedShiftReport?.let { closedReport ->
+        com.aesprt.marisuki.feature.shift.EndShiftReportSummaryDialog(
+            summary = closedReport,
+            viewModel = viewModel,
+            onDismiss = viewModel::dismissLastClosedShiftReport,
+        )
+    }
+
+    when (val currentShiftGate = shiftGate) {
+        is com.aesprt.marisuki.domain.model.ShiftGateState.PreviousShiftOpen -> {
+            com.aesprt.marisuki.feature.shift.PreviousShiftClosureGateScreen(
+                state = currentShiftGate,
+                viewModel = viewModel,
+                onLogout = authViewModel::logout,
+            )
+            return
+        }
+        is com.aesprt.marisuki.domain.model.ShiftGateState.NoActiveShift -> {
+            if (signedInAccount?.role == com.aesprt.marisuki.domain.auth.AccountRole.CASHIER) {
+                com.aesprt.marisuki.feature.shift.StartShiftScreen(
+                    state = currentShiftGate,
+                    viewModel = viewModel,
+                    onLogout = authViewModel::logout,
+                )
+                return
+            }
+        }
+        else -> Unit
     }
 
     run {
@@ -191,120 +231,126 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
         Scaffold(
             containerColor = MaterialTheme.colorScheme.background,
             topBar = {
-                TopAppBar(
-                    title = {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Surface(
-                                shape = RoundedCornerShape(10.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(38.dp)
+                Column {
+                    TopAppBar(
+                        title = {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Image(
-                                        painter = painterResource(R.drawable.marisuki_logo),
-                                        contentDescription = stringResource(R.string.app_name),
-                                        modifier = Modifier.size(28.dp),
-                                    )
-                                }
-                            }
-                            Column(verticalArrangement = Arrangement.Center) {
-                                Text(
-                                    stringResource(R.string.app_name),
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    authUiState.storeName.ifBlank { stringResource(R.string.brand_tagline) },
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                        }
-                    },
-                    actions = {
-                        if (accountName.isNotBlank()) {
-                            Box {
                                 Surface(
-                                    shape = RoundedCornerShape(20.dp),
-                                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(20.dp))
-                                        .clickable { accountMenuExpanded = true }
-                                        .padding(6.dp)
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(36.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Filled.AccountCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Text(
-                                            accountName,
-                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                                            color = MaterialTheme.colorScheme.onSurface,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.widthIn(max = 130.dp)
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Image(
+                                            painter = painterResource(R.drawable.marisuki_logo),
+                                            contentDescription = stringResource(R.string.app_name),
+                                            modifier = Modifier.size(24.dp),
                                         )
                                     }
                                 }
-                                DropdownMenu(
-                                    expanded = accountMenuExpanded,
-                                    onDismissRequest = { accountMenuExpanded = false }
-                                ) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.logout)) },
-                                        leadingIcon = {
-                                            Icon(
-                                                Icons.AutoMirrored.Filled.Logout,
-                                                contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.error
-                                            )
-                                        },
-                                        onClick = { accountMenuExpanded = false; authViewModel.logout() },
+                                Column(verticalArrangement = Arrangement.Center) {
+                                    Text(
+                                        stringResource(R.string.app_name),
+                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        authUiState.storeName.ifBlank { stringResource(R.string.brand_tagline) },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        actionIconContentColor = MaterialTheme.colorScheme.primary,
-                    ),
-                )
+                        },
+                        actions = {
+                            if (accountName.isNotBlank()) {
+                                Box(Modifier.padding(end = 8.dp)) {
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .clickable { accountMenuExpanded = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Icon(
+                                                Icons.Filled.AccountCircle,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Text(
+                                                accountName,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.onSurface,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                modifier = Modifier.widthIn(max = 150.dp)
+                                            )
+                                        }
+                                    }
+                                    DropdownMenu(
+                                        expanded = accountMenuExpanded,
+                                        onDismissRequest = { accountMenuExpanded = false }
+                                    ) {
+                                        DropdownMenuItem(
+                                            text = { Text(stringResource(R.string.logout)) },
+                                            leadingIcon = {
+                                                Icon(
+                                                    Icons.AutoMirrored.Filled.Logout,
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.error
+                                                )
+                                            },
+                                            onClick = { accountMenuExpanded = false; authViewModel.logout() },
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            titleContentColor = MaterialTheme.colorScheme.onSurface,
+                            actionIconContentColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
             },
             bottomBar = {
                 if (compact) {
-                    NavigationBar(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 3.dp,
-                    ) {
-                        destinations.forEach { destination ->
-                            val selected = backStack?.destination?.hierarchy?.any { it.route == destination.route } == true
-                            NavigationBarItem(
-                                selected = selected,
-                                onClick = { navController.navigate(destination.route) { launchSingleTop = true; restoreState = true } },
-                                icon = { Icon(destination.icon, contentDescription = null) },
-                                label = { Text(stringResource(destination.label)) },
-                                colors = NavigationBarItemDefaults.colors(
-                                    selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedTextColor = MaterialTheme.colorScheme.primary,
-                                    indicatorColor = MaterialTheme.colorScheme.primaryContainer,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                ),
-                            )
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        NavigationBar(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            tonalElevation = 0.dp,
+                        ) {
+                            destinations.forEach { destination ->
+                                val selected = backStack?.destination?.hierarchy?.any { it.route == destination.route } == true
+                                NavigationBarItem(
+                                    selected = selected,
+                                    onClick = { navController.navigate(destination.route) { launchSingleTop = true; restoreState = true } },
+                                    icon = { Icon(destination.icon, contentDescription = null) },
+                                    label = { Text(stringResource(destination.label)) },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.primary,
+                                        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
@@ -340,6 +386,7 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                             )
                         }
                     }
+                    VerticalDivider(Modifier.fillMaxHeight(), color = MaterialTheme.colorScheme.outlineVariant)
                 }
                 NavHost(
                     navController = navController,
@@ -351,6 +398,7 @@ private fun MariSukiAppContent(viewModel: PosViewModel, authViewModel: AuthViewM
                             viewModel,
                             expandedTablet = tabletLandscapeWorkspace,
                             mobileCameraScanning = compact,
+                            onLogout = authViewModel::logout,
                         )
                     }
                     composable("products") { ProductsScreen(viewModel) }
@@ -370,5 +418,7 @@ private fun PosMessage.stringResourceId(): Int = when (this) {
     PosMessage.PAYMENT_INVALID -> R.string.error_payment
     PosMessage.DUPLICATE -> R.string.error_duplicate
     PosMessage.ACCESS_DENIED -> R.string.error_access_denied
+    PosMessage.SHIFT_REQUIRED -> R.string.error_payment
+    PosMessage.PREVIOUS_SHIFT_OPEN -> R.string.error_payment
     PosMessage.GENERAL -> R.string.error_general
 }

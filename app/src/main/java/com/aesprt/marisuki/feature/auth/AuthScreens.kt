@@ -79,6 +79,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.aesprt.marisuki.R
+import com.aesprt.marisuki.ui.components.ToolChip
+import com.aesprt.marisuki.ui.theme.PosRadius
 import com.aesprt.marisuki.ui.theme.PosSpacing
 import com.aesprt.marisuki.domain.auth.AuthDestination
 import com.aesprt.marisuki.domain.auth.SetupDraft
@@ -186,8 +188,8 @@ private fun LoginScreen(viewModel: AuthViewModel, storeName: String) {
         )
         if (showError && state.error != null) AuthNotice(state.error.orEmpty(), error = true)
         Button(onClick = { submit() }, enabled = !state.busy && username.isNotBlank() && credential.isNotEmpty(),
-            shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-            if (state.busy) CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+            shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
+            if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
             else Text(stringResource(R.string.auth_sign_in))
         }
         Text(stringResource(R.string.auth_login_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -289,9 +291,10 @@ private fun SetupWizard(
             }
             Button(
                 onClick = { step = 1 },
+                shape = PosRadius.button,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 54.dp)
+                    .heightIn(min = 50.dp)
             ) { Text(stringResource(R.string.auth_start)) }
         } else {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -368,7 +371,8 @@ private fun SetupWizard(
                     if (!legacy) {
                         OutlinedButton(
                             onClick = { logoPicker.launch(arrayOf("image/*")) },
-                            modifier = Modifier.fillMaxWidth()
+                            shape = PosRadius.button,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(if (logoBytes == null) R.string.auth_choose_logo else R.string.auth_change_logo))
                         }
@@ -384,7 +388,7 @@ private fun SetupWizard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Button(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = PosRadius.button,
                         onClick = {
                             if (storeName.isBlank()) return@Button
                             step = 2
@@ -407,7 +411,7 @@ private fun SetupWizard(
                         enabled = storeName.isNotBlank() && !state.busy,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 54.dp),
+                            .heightIn(min = 50.dp),
                     ) { Text(stringResource(R.string.auth_continue)) }
                 }
 
@@ -566,6 +570,7 @@ private fun SetupWizard(
                             )
                             OutlinedButton(
                                 onClick = {
+                                    @Suppress("DEPRECATION")
                                     val intent =
                                         keyguard.createConfirmDeviceCredentialIntent(
                                             deviceTitle,
@@ -576,12 +581,13 @@ private fun SetupWizard(
                                     )
                                     else context.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                shape = PosRadius.button,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
                             ) { Text(stringResource(if (deviceCredentialConfirmed) R.string.auth_device_verified else if (keyguard.isDeviceSecure) R.string.auth_verify_device else R.string.auth_set_device_lock)) }
                         }
                     }
                     Button(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = PosRadius.button,
                         onClick = {
                             step = 3; if (!legacy) saveCurrentDraft(
                             viewModel,
@@ -602,7 +608,7 @@ private fun SetupWizard(
                         enabled = ownerName.isNotBlank() && username.isNotBlank() && password.length >= 8 && confirmPassword.isNotBlank() && ownerPin.length == 6 && confirmOwnerPin.length == 6 && (password == confirmPassword && ownerPin == confirmOwnerPin) && !state.busy,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 54.dp),
+                            .heightIn(min = 50.dp),
                     ) { Text(stringResource(R.string.auth_continue)) }
                 }
 
@@ -617,13 +623,13 @@ private fun SetupWizard(
                     Text(stringResource(R.string.auth_theme), style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("LIGHT" to R.string.auth_theme_light, "DARK" to R.string.auth_theme_dark, "SYSTEM" to R.string.auth_theme_system).forEach { (value, label) ->
-                            FilterChip(selected = theme == value, onClick = { theme = value }, label = { Text(stringResource(label)) })
+                            ToolChip(selected = theme == value, onClick = { theme = value }, label = { Text(stringResource(label)) })
                         }
                     }
                     Text(stringResource(R.string.auth_default_screen), style = MaterialTheme.typography.titleMedium)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("SALES" to R.string.auth_sales, "PRODUCTS" to R.string.auth_products, "CREDIT" to R.string.auth_credit).forEach { (value, label) ->
-                            FilterChip(selected = cashierScreen == value, onClick = { cashierScreen = value }, label = { Text(stringResource(label)) })
+                            ToolChip(selected = cashierScreen == value, onClick = { cashierScreen = value }, label = { Text(stringResource(label)) })
                         }
                     }
                     PreferenceToggle(
@@ -648,7 +654,7 @@ private fun SetupWizard(
                         singleLine = true
                     )
                     Button(
-                        shape = RoundedCornerShape(14.dp),
+                        shape = PosRadius.button,
                         onClick = {
                             val input = SetupInput(
                                 storeName = storeName,
@@ -679,10 +685,10 @@ private fun SetupWizard(
                         enabled = !state.busy && ownerName.isNotBlank() && password == confirmPassword && ownerPin == confirmOwnerPin,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(min = 54.dp),
+                            .heightIn(min = 50.dp),
                     ) {
                         if (state.busy) CircularProgressIndicator(
-                            Modifier.size(22.dp),
+                            Modifier.size(20.dp),
                             strokeWidth = 2.dp
                         )
                         else Text(stringResource(R.string.auth_finish_setup))
@@ -751,7 +757,7 @@ private const val MAX_STORE_LOGO_BYTES = 1_000_000
 
 @Composable
 private fun PreferenceToggle(label: String, value: Boolean, onChange: (Boolean) -> Unit) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(14.dp)) {
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.input) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 6.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
             Switch(checked = value, onCheckedChange = onChange)
@@ -764,8 +770,8 @@ private fun LanguagePicker(value: String, onSelect: (String) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(stringResource(R.string.auth_language), style = MaterialTheme.typography.titleSmall)
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(value == "fil", { onSelect("fil") }, label = { Text(stringResource(R.string.auth_filipino)) })
-            FilterChip(value == "en", { onSelect("en") }, label = { Text(stringResource(R.string.auth_english)) })
+            ToolChip(value == "fil", { onSelect("fil") }, label = { Text(stringResource(R.string.auth_filipino)) })
+            ToolChip(value == "en", { onSelect("en") }, label = { Text(stringResource(R.string.auth_english)) })
         }
     }
 }
@@ -776,11 +782,11 @@ private fun SetupStepIndicator(step: Int) {
         listOf(R.string.auth_step_store, R.string.auth_step_owner, R.string.auth_step_preferences).forEachIndexed { index, title ->
             val active = index + 1 == step
             val done = index + 1 < step
-            Surface(Modifier.weight(1f), shape = RoundedCornerShape(12.dp),
+            Surface(Modifier.weight(1f), shape = RoundedCornerShape(10.dp),
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerLow,
                 contentColor = if (active) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant) {
-                Column(Modifier.padding(vertical = 10.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    if (done) Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(20.dp))
+                Column(Modifier.padding(vertical = 8.dp, horizontal = 4.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    if (done) Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(18.dp))
                     else Text("${index + 1}", style = MaterialTheme.typography.labelLarge)
                     Text(stringResource(title), style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center)
                 }
@@ -794,10 +800,10 @@ private fun SetupCompleteScreen(ownerName: String, state: AuthUiState, viewModel
     AuthFrame {
         BrandHeader(stringResource(R.string.auth_complete_welcome))
         AuthHeading(stringResource(R.string.auth_complete_title), stringResource(R.string.auth_complete_body), Icons.Default.CheckCircle)
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(18.dp)) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.card) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(state.storeName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                HorizontalDivider()
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Text(stringResource(R.string.auth_owner_summary, ownerName), style = MaterialTheme.typography.bodyLarge)
                 Text(stringResource(R.string.auth_preferences_summary,
                     stringResource(if (state.language == "fil") R.string.auth_filipino else R.string.auth_english),
@@ -805,8 +811,8 @@ private fun SetupCompleteScreen(ownerName: String, state: AuthUiState, viewModel
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        Button(onClick = viewModel::continueToPos, enabled = !state.busy, shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-            if (state.busy) CircularProgressIndicator(Modifier.size(22.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+        Button(onClick = viewModel::continueToPos, enabled = !state.busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) {
+            if (state.busy) CircularProgressIndicator(Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
             else Text(stringResource(R.string.auth_open_pos))
         }
         state.error?.let { AuthNotice(it, error = true) }

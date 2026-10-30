@@ -237,7 +237,8 @@ private suspend fun seedTransactions(database: PosDatabase, existingRepository: 
         seedNow = currentDay + dateOffset * 86_400_000L + 10 * 3_600_000L + key.hashCode().toUInt().toLong() % 7_200_000L
         val unit = dao.productUnits(productId).first { it.label.equals(unitLabel, true) }
         val total = unit.priceCentavos
-        val tenders = if (method == null) emptyList() else listOf(TenderInput(method, paid ?: total))
+        val reference = if (method == null || method == PaymentMethod.CASH) null else "DEMO-${key.takeLast(12)}"
+        val tenders = if (method == null) emptyList() else listOf(TenderInput(method, paid ?: total, reference))
         timedRepository.checkout(CheckoutCommand(key, listOf(CartLineInput(productId, unit.id, PosRepository.SCALE)), tenders, customerId, salesChannel = channel))
     }
     sale("DEMO-SALE-CASH-TODAY", 0, cannedProduct.id, "Can", PaymentMethod.CASH)

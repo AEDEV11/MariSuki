@@ -49,10 +49,13 @@ import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Restore
 import com.aesprt.marisuki.ui.components.ToolDialog as AlertDialog
+import com.aesprt.marisuki.ui.components.PosEmptyState
+import com.aesprt.marisuki.ui.components.PosStatusBadge
 import com.aesprt.marisuki.ui.components.ToolCard
 import com.aesprt.marisuki.ui.components.ToolChip
 import com.aesprt.marisuki.ui.components.ToolIcon
 import com.aesprt.marisuki.ui.components.ToolSectionHeader
+import com.aesprt.marisuki.ui.theme.PosRadius
 import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Language
@@ -115,7 +118,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-private enum class MoreSection { INVENTORY, HISTORY, REPORTS, DELIVERIES, EXPENSES, SETTINGS, PRINTERS, BACKUP, STAFF, DEVELOPER }
+private enum class MoreSection { INVENTORY, HISTORY, REPORTS, SHIFT_REPORTS, DELIVERIES, EXPENSES, SETTINGS, PRINTERS, BACKUP, STAFF, DEVELOPER }
 
 @Composable
 fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
@@ -136,6 +139,7 @@ fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
             MoreSection.INVENTORY -> permissions.any { it in setOf(PosPermission.VIEW_STOCK, PosPermission.ADJUST_STOCK, PosPermission.ADD_STOCK) }
             MoreSection.HISTORY -> PosPermission.VIEW_SALES_HISTORY in permissions
             MoreSection.REPORTS -> permissions.any { it in setOf(PosPermission.VIEW_TODAYS_SALES, PosPermission.VIEW_HISTORICAL_SALES, PosPermission.VIEW_EXPENSES, PosPermission.VIEW_STOCK_VALUATION, PosPermission.VIEW_CUSTOMER_BALANCES, PosPermission.VIEW_STOCK, PosPermission.MANAGE_SUPPLIERS) }
+            MoreSection.SHIFT_REPORTS -> permissions.any { it in setOf(PosPermission.CREATE_SALE, PosPermission.VIEW_TODAYS_SALES, PosPermission.VIEW_HISTORICAL_SALES) } || ownerAccess
             MoreSection.DELIVERIES -> PosPermission.MANAGE_SUPPLIERS in permissions
             MoreSection.EXPENSES -> permissions.any { it in setOf(PosPermission.VIEW_EXPENSES, PosPermission.MANAGE_EXPENSES) }
             MoreSection.SETTINGS -> PosPermission.CHANGE_SETTINGS in permissions
@@ -149,18 +153,19 @@ fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
             showOwnerPin = true
         } else section = requested
     }
-    val title = when (section) {
-        MoreSection.INVENTORY -> R.string.inventory_title
-        MoreSection.HISTORY -> R.string.sales_history
-        MoreSection.REPORTS -> R.string.reports_title
-        MoreSection.DELIVERIES -> R.string.deliveries_title
-        MoreSection.EXPENSES -> R.string.expenses_title
-        MoreSection.SETTINGS -> R.string.settings_title
-        MoreSection.PRINTERS -> R.string.printer_title
-        MoreSection.BACKUP -> R.string.backup_title
-        MoreSection.STAFF -> R.string.staff_title
-        MoreSection.DEVELOPER -> R.string.debug_title
-        null -> R.string.more_title
+    val titleText = when (section) {
+        MoreSection.INVENTORY -> stringResource(R.string.inventory_title)
+        MoreSection.HISTORY -> stringResource(R.string.sales_history)
+        MoreSection.REPORTS -> stringResource(R.string.reports_title)
+        MoreSection.SHIFT_REPORTS -> "Shift Reports"
+        MoreSection.DELIVERIES -> stringResource(R.string.deliveries_title)
+        MoreSection.EXPENSES -> stringResource(R.string.expenses_title)
+        MoreSection.SETTINGS -> stringResource(R.string.settings_title)
+        MoreSection.PRINTERS -> stringResource(R.string.printer_title)
+        MoreSection.BACKUP -> stringResource(R.string.backup_title)
+        MoreSection.STAFF -> stringResource(R.string.staff_title)
+        MoreSection.DEVELOPER -> stringResource(R.string.debug_title)
+        null -> stringResource(R.string.more_title)
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 700.dp
@@ -177,6 +182,7 @@ fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
                     MoreSection.EXPENSES -> Icons.Default.Payments
                     MoreSection.HISTORY -> Icons.Default.History
                     MoreSection.REPORTS -> Icons.Default.Assessment
+                    MoreSection.SHIFT_REPORTS -> Icons.Default.History
                     MoreSection.PRINTERS -> Icons.Default.Print
                     MoreSection.BACKUP -> Icons.Default.Restore
                     MoreSection.STAFF -> Icons.Default.ManageAccounts
@@ -184,7 +190,7 @@ fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
                     else -> Icons.Default.Settings
                 })
                 Column(Modifier.weight(1f)) {
-                    Text(stringResource(title), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text(titleText, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                     if (section == null) Text(stringResource(R.string.more_description), color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
@@ -193,6 +199,7 @@ fun MoreToolsScreen(viewModel: PosViewModel, authViewModel: AuthViewModel) {
                 MoreSection.INVENTORY -> InventoryTool(viewModel)
                 MoreSection.HISTORY -> SalesHistoryTool(viewModel)
                 MoreSection.REPORTS -> ReportsTool(viewModel)
+                MoreSection.SHIFT_REPORTS -> com.aesprt.marisuki.feature.shift.ShiftReportsScreen(viewModel)
                 MoreSection.DELIVERIES -> StockDeliveryTool(viewModel)
                 MoreSection.EXPENSES -> ExpensesTool(viewModel)
                 MoreSection.SETTINGS -> SettingsTool(viewModel, authViewModel, selectSection)
@@ -219,6 +226,12 @@ private fun MoreMenu(viewModel: PosViewModel, onSelect: (MoreSection) -> Unit) {
     val lowStock by viewModel.lowStockCount.collectAsStateWithLifecycle()
     val ownerAccess by viewModel.ownerAccessGranted.collectAsStateWithLifecycle()
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
+    val shiftGate by viewModel.shiftGateState.collectAsStateWithLifecycle()
+    var showShiftDetails by rememberSaveable { mutableStateOf(false) }
+    var showRecordCashMovement by rememberSaveable { mutableStateOf(false) }
+    var showEndShiftDialog by rememberSaveable { mutableStateOf(false) }
+    val activeShiftSummary = (shiftGate as? com.aesprt.marisuki.domain.model.ShiftGateState.ActiveShift)?.summary
+
     val operations = buildList {
         if (permissions.any { it in setOf(PosPermission.VIEW_STOCK, PosPermission.ADJUST_STOCK, PosPermission.ADD_STOCK) })
             add(ToolEntry(Icons.Filled.Inventory, stringResource(R.string.inventory_title), stringResource(R.string.low_stock_summary, lowStock)) { onSelect(MoreSection.INVENTORY) })
@@ -232,6 +245,8 @@ private fun MoreMenu(viewModel: PosViewModel, onSelect: (MoreSection) -> Unit) {
     val insights = buildList {
         if (permissions.any { it in setOf(PosPermission.VIEW_TODAYS_SALES, PosPermission.VIEW_HISTORICAL_SALES, PosPermission.VIEW_STOCK_VALUATION, PosPermission.VIEW_CUSTOMER_BALANCES) })
             add(ToolEntry(Icons.Filled.Assessment, stringResource(R.string.reports_title), stringResource(R.string.report_description)) { onSelect(MoreSection.REPORTS) })
+        if (permissions.any { it in setOf(PosPermission.CREATE_SALE, PosPermission.VIEW_TODAYS_SALES, PosPermission.VIEW_HISTORICAL_SALES) } || ownerAccess)
+            add(ToolEntry(Icons.Filled.History, "Shift Reports", "End shift cash reconciliation & PDF reports in Documents/EndShiftReport/") { onSelect(MoreSection.SHIFT_REPORTS) })
     }
     val administration = buildList {
         if (PosPermission.CHANGE_SETTINGS in permissions) add(ToolEntry(Icons.Filled.Settings, stringResource(R.string.settings_title), stringResource(R.string.settings_description)) { onSelect(MoreSection.SETTINGS) })
@@ -240,18 +255,56 @@ private fun MoreMenu(viewModel: PosViewModel, onSelect: (MoreSection) -> Unit) {
         if (ownerAccess) add(ToolEntry(Icons.Filled.ManageAccounts, stringResource(R.string.staff_title), stringResource(R.string.staff_description)) { onSelect(MoreSection.STAFF) })
         if (BuildConfig.DEBUG && ownerAccess) add(ToolEntry(Icons.Filled.Tune, stringResource(R.string.debug_title), stringResource(if (BuildConfig.FLAVOR == "staging") R.string.debug_staging_description else R.string.debug_description)) { onSelect(MoreSection.DEVELOPER) })
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 280.dp),
-        verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
-        horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm),
-        contentPadding = PaddingValues(bottom = PosSpacing.section),
-    ) {
-        if (operations.isEmpty() && insights.isEmpty() && administration.isEmpty()) item {
-            Text(stringResource(R.string.more_no_tools), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(PosSpacing.section))
+    Column(verticalArrangement = Arrangement.spacedBy(PosSpacing.sm)) {
+        if (activeShiftSummary != null) {
+            com.aesprt.marisuki.feature.shift.ActiveShiftStatusBanner(
+                summary = activeShiftSummary,
+                onOpenDetails = { showShiftDetails = true },
+                onOpenCashMovement = { showRecordCashMovement = true },
+                onOpenEndShift = { showEndShiftDialog = true },
+            )
         }
-        if (operations.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_operations), operations) }
-        if (insights.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_insights), insights) }
-        if (administration.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_admin), administration) }
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 280.dp),
+            verticalArrangement = Arrangement.spacedBy(PosSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(PosSpacing.sm),
+            contentPadding = PaddingValues(bottom = PosSpacing.section),
+        ) {
+            if (operations.isEmpty() && insights.isEmpty() && administration.isEmpty()) item {
+                Text(stringResource(R.string.more_no_tools), color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(PosSpacing.section))
+            }
+            if (operations.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_operations), operations) }
+            if (insights.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_insights), insights) }
+            if (administration.isNotEmpty()) item { ToolGroup(stringResource(R.string.more_group_admin), administration) }
+        }
+    }
+    if (activeShiftSummary != null && showShiftDetails) {
+        com.aesprt.marisuki.feature.shift.ShiftDetailsDialog(
+            summary = activeShiftSummary,
+            onRecordMovement = {
+                showShiftDetails = false
+                showRecordCashMovement = true
+            },
+            onEndShift = {
+                showShiftDetails = false
+                showEndShiftDialog = true
+            },
+            onDismiss = { showShiftDetails = false },
+        )
+    }
+    if (activeShiftSummary != null && showRecordCashMovement) {
+        com.aesprt.marisuki.feature.shift.RecordCashMovementDialog(
+            summary = activeShiftSummary,
+            viewModel = viewModel,
+            onDismiss = { showRecordCashMovement = false },
+        )
+    }
+    if (activeShiftSummary != null && showEndShiftDialog) {
+        com.aesprt.marisuki.feature.shift.EndShiftReconciliationDialog(
+            summary = activeShiftSummary,
+            viewModel = viewModel,
+            onDismiss = { showEndShiftDialog = false },
+        )
     }
 }
 
@@ -283,6 +336,16 @@ private fun SettingsTool(viewModel: PosViewModel, authViewModel: AuthViewModel, 
                 }
             }
         }
+        ToolGroup(
+            "Shift Management & Reports",
+            listOf(
+                ToolEntry(
+                    Icons.Default.History,
+                    "Shift Reports",
+                    "View historical End Shift reconciliation reports and open/share PDFs saved in Documents/EndShiftReport/",
+                ) { onNavigate(MoreSection.SHIFT_REPORTS) },
+            ),
+        )
         if (PosPermission.MANAGE_PRINTERS in permissions) ToolGroup(stringResource(R.string.settings_hardware), listOf(
             ToolEntry(Icons.Default.Print, stringResource(R.string.printer_title), stringResource(R.string.printer_settings_description)) { onNavigate(MoreSection.PRINTERS) }))
         if (ownerAccess) {
@@ -316,13 +379,14 @@ private fun BackupTool(viewModel: PosViewModel) {
         restoreUri = uri
     }
     Column(Modifier.verticalScroll(rememberScrollState()).imePadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        ToolCard(shape = RoundedCornerShape(18.dp)) {
+        ToolCard(shape = PosRadius.card) {
             Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 ToolSectionHeader(stringResource(R.string.export_backup), Icons.Default.Lock)
                 Text(stringResource(R.string.backup_description), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(
                     passphrase,
                     { passphrase = it },
+                    shape = PosRadius.input,
                     label = { Text(stringResource(R.string.backup_password)) },
                     supportingText = { Text(stringResource(R.string.backup_password_help)) },
                     visualTransformation = PasswordVisualTransformation(),
@@ -333,9 +397,9 @@ private fun BackupTool(viewModel: PosViewModel) {
                     onClick = { createBackup.launch("marisuki-backup.mskb") },
                     enabled = !working && passphrase.length >= 12,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = PosRadius.button,
                 ) { Text(stringResource(if (working) R.string.saving else R.string.export_backup)) }
-                androidx.compose.material3.OutlinedButton(onClick = { chooseRestore.launch(arrayOf("application/octet-stream", "*/*")) }, enabled = !working && passphrase.length >= 12, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
+                androidx.compose.material3.OutlinedButton(onClick = { chooseRestore.launch(arrayOf("application/octet-stream", "*/*")) }, enabled = !working && passphrase.length >= 12, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = PosRadius.button) {
                     Text(stringResource(R.string.choose_backup_to_restore))
                 }
             }
@@ -345,7 +409,7 @@ private fun BackupTool(viewModel: PosViewModel) {
                 ToolSectionHeader(stringResource(R.string.restore_latest_automatic_backup), Icons.Default.Restore)
                 Text(stringResource(R.string.automatic_backup_description), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 androidx.compose.material3.OutlinedButton(onClick = { confirmAutomaticRestore = true }, enabled = hasAutomaticBackup && !working,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = PosRadius.button) {
                     Text(stringResource(R.string.restore_backup))
                 }
             }
@@ -362,6 +426,7 @@ private fun BackupTool(viewModel: PosViewModel) {
                 Button(
                     onClick = { viewModel.restoreBackup(uri, passphrase); restoreUri = null },
                     enabled = !working && passphrase.length >= 12,
+                    shape = PosRadius.button,
                 ) { Text(stringResource(R.string.restore_backup)) }
             },
             dismissButton = { TextButton(onClick = { restoreUri = null }) { Text(stringResource(R.string.cancel)) } },
@@ -377,6 +442,7 @@ private fun BackupTool(viewModel: PosViewModel) {
                 Button(
                     onClick = { viewModel.restoreLatestAutomaticBackup(); confirmAutomaticRestore = false },
                     enabled = !working,
+                    shape = PosRadius.button,
                 ) { Text(stringResource(R.string.restore_backup)) }
             },
             dismissButton = { TextButton(onClick = { confirmAutomaticRestore = false }) { Text(stringResource(R.string.cancel)) } },
@@ -414,7 +480,7 @@ private fun InventoryTool(viewModel: PosViewModel) {
     val canRemove = PosPermission.ADJUST_STOCK in permissions
     var target by rememberSaveable { mutableStateOf<String?>(null) }
     if (products.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.cashier_empty_products)) }
+        PosEmptyState(title = stringResource(R.string.cashier_empty_products), icon = Icons.Default.Inventory, modifier = Modifier.fillMaxSize())
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -475,12 +541,7 @@ fun StockDialog(product: ProductSummary, onDismiss: () -> Unit, onSave: (Long, S
     var operationId by rememberSaveable(product.id) { mutableStateOf(java.util.UUID.randomUUID().toString()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        containerColor = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(24.dp),
-        icon = {
-            androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary, shape = RoundedCornerShape(14.dp)) {
-                Icon(Icons.Default.Inventory, null, Modifier.padding(12.dp).size(24.dp))
-            }
-        },
+        icon = { ToolIcon(Icons.Default.Inventory) },
         title = { Text(stringResource(R.string.stock_update_title)) },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -498,7 +559,7 @@ fun StockDialog(product: ProductSummary, onDismiss: () -> Unit, onSave: (Long, S
                     if (canAdd) ToolChip(selected = increase, onClick = { increase = true; reason = "DELIVERY" }, label = { Text(stringResource(R.string.add_stock)) })
                     if (canRemove) ToolChip(selected = !increase, onClick = { increase = false; reason = "DAMAGED" }, label = { Text(stringResource(R.string.remove_stock)) })
                 }
-                OutlinedTextField(quantity, { quantity = it }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), label = { Text(stringResource(if (increase) R.string.stock_quantity else R.string.stock_quantity_remove)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                OutlinedTextField(quantity, { quantity = it }, modifier = Modifier.fillMaxWidth(), shape = PosRadius.input, label = { Text(stringResource(if (increase) R.string.stock_quantity else R.string.stock_quantity_remove)) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     listOf("DELIVERY", "COUNT", "DAMAGED", "EXPIRED").filter { if (increase) it != "DAMAGED" && it != "EXPIRED" else it != "DELIVERY" }.forEach { key ->
                         val label = when (key) {
@@ -513,19 +574,19 @@ fun StockDialog(product: ProductSummary, onDismiss: () -> Unit, onSave: (Long, S
                 val parsedQuantity = PosViewModel.parseQuantityMilliUnits(quantity)
                 if (parsedQuantity != null && parsedQuantity > 0) {
                     val after = if (increase) product.onHandMilliUnits + parsedQuantity else product.onHandMilliUnits - parsedQuantity
-                    if (after >= 0) androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .35f), shape = RoundedCornerShape(14.dp)) {
+                    if (after >= 0) androidx.compose.material3.Surface(color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .45f), shape = PosRadius.input) {
                         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(stringResource(R.string.stock_after_adjustment), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             Text("${PosViewModel.formatQuantity(after)} ${product.baseUnitLabel}", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
-                OutlinedTextField(note, { note = it }, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.note_optional)) }, minLines = 2)
+                OutlinedTextField(note, { note = it }, modifier = Modifier.fillMaxWidth(), shape = PosRadius.input, label = { Text(stringResource(R.string.note_optional)) }, minLines = 2)
             }
         },
         confirmButton = {
             val parsed = PosViewModel.parseQuantityMilliUnits(quantity)
-            Button(onClick = { parsed?.let { onSave(it, reason, note.trim().ifBlank { null }, increase, operationId) } }, enabled = parsed != null && parsed > 0, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.save)) }
+            Button(onClick = { parsed?.let { onSave(it, reason, note.trim().ifBlank { null }, increase, operationId) } }, enabled = parsed != null && parsed > 0, shape = PosRadius.button) { Text(stringResource(R.string.save)) }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )
@@ -550,7 +611,7 @@ private fun SalesHistoryTool(viewModel: PosViewModel) {
         }
     }
     if (sales.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.no_sales)) }
+        PosEmptyState(title = stringResource(R.string.no_sales), icon = Icons.Default.History, modifier = Modifier.fillMaxSize())
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -597,9 +658,21 @@ private fun SalesHistoryTool(viewModel: PosViewModel) {
                 }
             }
             if (items == null) {
-                AlertDialog(onDismissRequest = { refundTarget = null }, title = { Text(stringResource(R.string.refund_sale)) }, text = { Text(stringResource(R.string.loading_sale_items)) }, confirmButton = {})
+                AlertDialog(
+                    onDismissRequest = { refundTarget = null },
+                    icon = { ToolIcon(Icons.Default.History) },
+                    title = { Text(stringResource(R.string.refund_sale)) },
+                    text = { Text(stringResource(R.string.loading_sale_items)) },
+                    confirmButton = {},
+                )
             } else if (items.isEmpty()) {
-                AlertDialog(onDismissRequest = { refundTarget = null }, title = { Text(stringResource(R.string.refund_sale)) }, text = { Text(stringResource(R.string.history_nothing_to_refund)) }, confirmButton = { TextButton(onClick = { refundTarget = null }) { Text(stringResource(R.string.close)) } })
+                AlertDialog(
+                    onDismissRequest = { refundTarget = null },
+                    icon = { ToolIcon(Icons.Default.History) },
+                    title = { Text(stringResource(R.string.refund_sale)) },
+                    text = { Text(stringResource(R.string.history_nothing_to_refund)) },
+                    confirmButton = { TextButton(onClick = { refundTarget = null }) { Text(stringResource(R.string.close)) } },
+                )
             } else RefundDialog(
                 saleLabel = sale.id.take(8).uppercase(),
                 items = items,
@@ -634,16 +707,16 @@ private fun StockDeliveryTool(viewModel: PosViewModel) {
     val parsedCost = PosViewModel.parseCentavos(cost)
 
     if (products.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(stringResource(R.string.cashier_empty_products)) }
+        PosEmptyState(title = stringResource(R.string.cashier_empty_products), icon = Icons.Default.LocalShipping, modifier = Modifier.fillMaxSize())
         return
     }
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            ToolCard(shape = RoundedCornerShape(18.dp)) {
+            ToolCard(shape = PosRadius.card) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     ToolSectionHeader(stringResource(R.string.delivery_form_title), Icons.Default.LocalShipping, stringResource(R.string.deliveries_description))
                     Box {
-                        androidx.compose.material3.OutlinedButton(onClick = { productMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                        androidx.compose.material3.OutlinedButton(onClick = { productMenu = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = PosRadius.button) {
                             Text(selected?.let { "${it.name} · ${it.baseUnitLabel}" } ?: stringResource(R.string.choose_product))
                         }
                         DropdownMenu(expanded = productMenu, onDismissRequest = { productMenu = false }) {
@@ -655,13 +728,13 @@ private fun StockDeliveryTool(viewModel: PosViewModel) {
                             }
                         }
                     }
-                    OutlinedTextField(supplier, { supplier = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.supplier_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(supplierPhone, { supplierPhone = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.supplier_phone)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
+                    OutlinedTextField(supplier, { supplier = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.supplier_name)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(supplierPhone, { supplierPhone = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.supplier_phone)) }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        OutlinedTextField(quantity, { quantity = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.delivered_quantity, selected?.baseUnitLabel.orEmpty())) }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                        OutlinedTextField(cost, { cost = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.delivery_total_cost)) }, prefix = { Text("₱ ") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(quantity, { quantity = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.delivered_quantity, selected?.baseUnitLabel.orEmpty())) }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                        OutlinedTextField(cost, { cost = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.delivery_total_cost)) }, prefix = { Text("₱ ") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
                     }
-                    OutlinedTextField(note, { note = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.note_optional)) }, minLines = 2, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(note, { note = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.note_optional)) }, minLines = 2, modifier = Modifier.fillMaxWidth())
                     Button(
                         onClick = {
                             val product = selected ?: return@Button
@@ -676,18 +749,18 @@ private fun StockDeliveryTool(viewModel: PosViewModel) {
                             )
                         },
                         enabled = !working && selected != null && parsedQuantity != null && parsedQuantity > 0 && parsedCost != null && parsedCost >= 0,
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp),
-                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
+                        shape = PosRadius.button,
                     ) { Text(stringResource(if (working) R.string.saving else R.string.save_delivery)) }
                 }
             }
         }
         item { Text(stringResource(R.string.recent_deliveries), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
         if (deliveries.isEmpty()) {
-            item { Text(stringResource(R.string.no_deliveries), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            item { PosEmptyState(title = stringResource(R.string.no_deliveries), icon = Icons.Default.LocalShipping) }
         } else {
             items(deliveries, key = { it.id }) { delivery ->
-                ToolCard(shape = RoundedCornerShape(14.dp)) {
+                ToolCard(shape = PosRadius.card) {
                     Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(delivery.supplierNameSnapshot ?: stringResource(R.string.walk_in_supplier), fontWeight = FontWeight.SemiBold)
@@ -714,12 +787,12 @@ private fun ExpensesTool(viewModel: PosViewModel) {
     val parsed = PosViewModel.parseCentavos(amount)
     LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp), contentPadding = PaddingValues(bottom = 24.dp)) {
         item {
-            ToolCard(shape = RoundedCornerShape(18.dp)) {
+            ToolCard(shape = PosRadius.card) {
                 Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     ToolSectionHeader(stringResource(R.string.expense_form_title), Icons.Default.Payments, stringResource(R.string.expenses_description))
-                    OutlinedTextField(amount, { amount = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.expense_amount)) }, prefix = { Text("₱ ") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
-                    OutlinedTextField(category, { category = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.expense_category)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                    OutlinedTextField(description, { description = it; operationId = java.util.UUID.randomUUID().toString() }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.note_optional)) }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(amount, { amount = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.expense_amount)) }, prefix = { Text("₱ ") }, singleLine = true, modifier = Modifier.fillMaxWidth(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+                    OutlinedTextField(category, { category = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.expense_category)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(description, { description = it; operationId = java.util.UUID.randomUUID().toString() }, shape = PosRadius.input, label = { Text(stringResource(R.string.note_optional)) }, modifier = Modifier.fillMaxWidth())
                     Text(stringResource(R.string.payment_method), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         listOf("CASH", "GCASH", "MAYA").forEach { method ->
@@ -735,15 +808,15 @@ private fun ExpensesTool(viewModel: PosViewModel) {
                         onClick = { parsed?.let { viewModel.recordExpense(operationId, it, category, description, paymentSource) } },
                         enabled = !working && parsed != null && parsed > 0 && category.isNotBlank(),
                         modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp),
-                    shape = RoundedCornerShape(12.dp),
+                        shape = PosRadius.button,
                     ) { Text(stringResource(if (working) R.string.saving else R.string.save_expense)) }
                 }
             }
         }
         item { Text(stringResource(R.string.recent_expenses), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold) }
-        if (expenses.isEmpty()) item { Text(stringResource(R.string.no_expenses), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        if (expenses.isEmpty()) item { PosEmptyState(title = stringResource(R.string.no_expenses), icon = Icons.Default.Payments) }
         else items(expenses, key = { it.id }) { expense ->
-            ToolCard(shape = RoundedCornerShape(14.dp)) {
+            ToolCard(shape = PosRadius.card) {
                 Row(Modifier.fillMaxWidth().padding(14.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(expense.category, fontWeight = FontWeight.SemiBold)
@@ -787,6 +860,7 @@ private fun RefundDialog(
     val allSelectedLinesValid = refundLines.size == selectedIds.size
     AlertDialog(
         onDismissRequest = onDismiss,
+        icon = { ToolIcon(Icons.Default.History) },
         title = { Text(stringResource(R.string.refund_sale_title, saleLabel)) },
         text = {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -810,6 +884,7 @@ private fun RefundDialog(
                             if (selected) OutlinedTextField(
                                 value = quantityTexts[item.id].orEmpty(),
                                 onValueChange = { value -> quantityTexts = quantityTexts + (item.id to value) },
+                                shape = PosRadius.input,
                                 label = { Text(stringResource(R.string.return_quantity)) },
                                 singleLine = true,
                                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
@@ -817,9 +892,9 @@ private fun RefundDialog(
                         }
                     }
                 }
-                OutlinedTextField(reason, { reason = it }, shape = RoundedCornerShape(14.dp), label = { Text(stringResource(R.string.refund_reason)) }, minLines = 2)
+                OutlinedTextField(reason, { reason = it }, modifier = Modifier.fillMaxWidth(), shape = PosRadius.input, label = { Text(stringResource(R.string.refund_reason)) }, minLines = 2)
                 Box {
-                    androidx.compose.material3.OutlinedButton(onClick = { methodMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                    androidx.compose.material3.OutlinedButton(onClick = { methodMenu = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = PosRadius.button) {
                         val label = when (refundMethod) {
                             RefundMethod.CASH.name -> stringResource(R.string.method_cash)
                             RefundMethod.GCASH.name -> stringResource(R.string.method_gcash)
@@ -850,6 +925,7 @@ private fun RefundDialog(
             Button(
                 onClick = { RefundMethod.entries.firstOrNull { it.name == refundMethod }?.let { onRefund(reason.trim(), refundLines, it, operationId) } },
                 enabled = reason.isNotBlank() && selectedIds.isNotEmpty() && allSelectedLinesValid && !isWorking,
+                shape = PosRadius.button,
             ) {
                 Text(stringResource(if (isWorking) R.string.saving else R.string.refund_sale))
             }

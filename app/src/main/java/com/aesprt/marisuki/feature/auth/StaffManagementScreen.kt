@@ -19,8 +19,11 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import com.aesprt.marisuki.ui.components.PosEmptyState
+import com.aesprt.marisuki.ui.components.PosStatusBadge
 import com.aesprt.marisuki.ui.components.ToolSectionHeader
 import com.aesprt.marisuki.ui.components.ToolIcon
+import com.aesprt.marisuki.ui.theme.PosRadius
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.ManageAccounts
@@ -132,11 +135,16 @@ private fun StaffListPane(
                 Button(
                     onClick = onAdd,
                     modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
-                    shape = RoundedCornerShape(12.dp)
+                    shape = PosRadius.button
                 ) {
                     Text(stringResource(R.string.staff_add_cashier), fontWeight = FontWeight.SemiBold)
                 }
-                if (cashiers.isEmpty()) Text(stringResource(R.string.staff_empty), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (cashiers.isEmpty()) {
+                    PosEmptyState(
+                        title = stringResource(R.string.staff_empty),
+                        icon = Icons.Default.ManageAccounts,
+                    )
+                }
             }
         }
         items(cashiers, key = { it.id }) { account ->
@@ -151,24 +159,24 @@ internal fun StaffAccountRow(account: com.aesprt.marisuki.domain.auth.AccountSum
     Card(
         onClick = onSelect,
         modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
-        shape = RoundedCornerShape(20.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(
             containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
         ),
-        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.28f) else MaterialTheme.colorScheme.outlineVariant),
+        border = BorderStroke(1.dp, if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f) else MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 ToolIcon(Icons.Default.Person)
-                Text(account.displayName, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("@${account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    stringResource(if (account.enabled) R.string.staff_enabled else R.string.staff_disabled),
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = if (account.enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(account.displayName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text("@${account.username}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                PosStatusBadge(
+                    text = stringResource(if (account.enabled) R.string.staff_enabled else R.string.staff_disabled),
+                    containerColor = if (account.enabled) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                    contentColor = if (account.enabled) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
                 )
             }
         }
@@ -196,36 +204,36 @@ private fun StaffDetailsPane(
     Column(modifier.imePadding()) {
         Card(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
+            shape = PosRadius.card,
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         ) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                onBack?.let { OutlinedButton(onClick = it, shape = RoundedCornerShape(10.dp)) { Text(stringResource(R.string.staff_back)) } }
+                onBack?.let { OutlinedButton(onClick = it, shape = PosRadius.button) { Text(stringResource(R.string.staff_back)) } }
                 ToolSectionHeader(stringResource(if (selected == null) R.string.staff_add_cashier else R.string.staff_cashier_account), Icons.Default.Person)
                 OutlinedTextField(
                     displayName, onName, Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.staff_full_name)) }, singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = PosRadius.input
                 )
                 OutlinedTextField(
                     username, onUsername, Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.staff_username)) }, singleLine = true,
-                    shape = RoundedCornerShape(12.dp)
+                    shape = PosRadius.input
                 )
                 OutlinedTextField(
                     pin, onPin, Modifier.fillMaxWidth(),
                     label = { Text(stringResource(if (selected == null) R.string.staff_login_pin else R.string.staff_new_login_pin)) },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = PosRadius.input,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 )
                 OutlinedTextField(
                     confirmPin, onConfirmPin, Modifier.fillMaxWidth(),
                     label = { Text(stringResource(R.string.staff_confirm_pin)) },
                     singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                    shape = RoundedCornerShape(12.dp),
+                    shape = PosRadius.input,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                 )
                 if (selected != null) {
@@ -237,10 +245,14 @@ private fun StaffDetailsPane(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 ToolSectionHeader(stringResource(R.string.staff_permissions), Icons.Default.Lock)
                 PosPermission.entries.filterNot(PosPermission::ownerOnly).groupBy { it.group }.forEach { (group, items) ->
-                    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(16.dp)) {
+                    Surface(
+                        color = MaterialTheme.colorScheme.surfaceContainerLow,
+                        shape = PosRadius.input,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                    ) {
                         Column(Modifier.fillMaxWidth().padding(14.dp)) {
                             Text(group.replaceFirstChar(Char::uppercase), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            items.forEach { permission ->
+                            items.forEachIndexed { index, permission ->
                                 val checked = permission in permissions
                                 Row(
                                     Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget).toggleable(
@@ -256,10 +268,10 @@ private fun StaffDetailsPane(
                                         onCheckedChange = null,
                                     )
                                 }
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                if (index < items.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                             }
                         }
-                }
+                    }
                 }
                 if (selected != null) {
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -277,7 +289,7 @@ private fun StaffDetailsPane(
             onClick = { viewModel.save(displayName, username, pin, confirmPin, permissions) },
             enabled = !state.busy && displayName.isNotBlank() && username.isNotBlank() && (selected != null || pin.length == 6) && (pin.isEmpty() || pin == confirmPin),
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 10.dp).heightIn(min = 50.dp),
-            shape = RoundedCornerShape(12.dp),
+            shape = PosRadius.button,
         ) {
             if (state.busy) CircularProgressIndicator(color = MaterialTheme.colorScheme.onPrimary, modifier = Modifier.padding(4.dp))
             else Text(stringResource(if (selected == null) R.string.staff_create_cashier else R.string.staff_save_changes), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))

@@ -55,7 +55,14 @@ private val posModule = module {
         val name = if (BuildConfig.DEBUG) "marisuki-pos-debug.db" else "marisuki-pos.db"
         Room.databaseBuilder(context, PosDatabase::class.java, PosStoragePaths.databasePath(context, name))
             .addMigrations(PosDatabase.MIGRATION_1_2)
-            .addMigrations(PosDatabase.MIGRATION_2_3, PosDatabase.MIGRATION_3_4, PosDatabase.MIGRATION_4_5, PosDatabase.MIGRATION_5_6)
+            .addMigrations(
+                PosDatabase.MIGRATION_2_3,
+                PosDatabase.MIGRATION_3_4,
+                PosDatabase.MIGRATION_4_5,
+                PosDatabase.MIGRATION_5_6,
+                PosDatabase.MIGRATION_6_7,
+                PosDatabase.MIGRATION_7_8,
+            )
             .build()
     }
     single { get<PosDatabase>().posDao() }
@@ -68,7 +75,8 @@ private val posModule = module {
     single<RestrictedActionApproval> { get<AuthRepository>() }
     single { PosRepository(get(), get(), get()) }
     single { EncryptedBackupManager(androidContext(), get(), get(), get(), get()) }
-    viewModel { PosViewModel(get(), get(), get(), get()) }
+    single { com.aesprt.marisuki.feature.shift.EndShiftReportPdfExporter(androidContext()) }
+    viewModel { PosViewModel(get(), get(), get(), get(), get()) }
     viewModel { AuthViewModel(get()) }
     viewModel { StaffAdminViewModel(get()) }
 }

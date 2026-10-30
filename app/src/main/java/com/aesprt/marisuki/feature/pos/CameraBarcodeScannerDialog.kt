@@ -76,19 +76,19 @@ fun CameraBarcodeScannerDialog(
 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
-            modifier = Modifier.fillMaxWidth().widthIn(max = 600.dp).padding(16.dp).heightIn(min = 480.dp, max = 760.dp),
+            modifier = Modifier.fillMaxWidth().widthIn(max = 560.dp).padding(16.dp).heightIn(min = 460.dp, max = 720.dp),
             shape = MaterialTheme.shapes.extraLarge,
             color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            tonalElevation = 6.dp,
+            tonalElevation = 2.dp,
         ) {
-            Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(stringResource(R.string.camera_scan_title), style = MaterialTheme.typography.titleLarge)
                         Text(stringResource(R.string.camera_scan_instructions), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(40.dp)) {
                         Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.close))
                     }
                 }
@@ -100,13 +100,13 @@ fun CameraBarcodeScannerDialog(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
                     ) {
-                        Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                        Icon(Icons.Filled.CameraAlt, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(44.dp))
                         Spacer(Modifier.height(12.dp))
                         Text(stringResource(R.string.camera_permission_required), style = MaterialTheme.typography.bodyLarge)
                         Spacer(Modifier.height(16.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-                            Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) { Text(stringResource(R.string.camera_permission_action)) }
+                            OutlinedButton(onClick = onDismiss, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.cancel)) }
+                            Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }, shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.camera_permission_action)) }
                         }
                     }
                 }

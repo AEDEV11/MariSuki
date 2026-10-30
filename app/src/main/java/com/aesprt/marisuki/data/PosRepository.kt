@@ -67,21 +67,33 @@ class PosRepository(
     fun observeStockDeliveries(): Flow<List<StockDeliveryEntity>> = securedList(PosPermission.MANAGE_SUPPLIERS, dao.observeStockDeliveries())
     fun observeExpenses(): Flow<List<ExpenseEntity>> = securedList(PosPermission.VIEW_EXPENSES, dao.observeExpenses())
 
-    private fun <T> securedList(permission: PosPermission, source: Flow<List<T>>): Flow<List<T>> = flow {
-        try { accessControl.requirePermission(permission) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(emptyList()); return@flow }
-        emitAll(source)
-    }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun <T> securedList(permission: PosPermission, source: Flow<List<T>>): Flow<List<T>> =
+        actorRevision.flatMapLatest {
+            flow {
+                try { accessControl.requirePermission(permission) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(emptyList()); return@flow }
+                emitAll(source)
+            }
+        }
 
-    private fun securedProducts(source: Flow<List<ProductSummary>>): Flow<List<ProductSummary>> = flow {
-        try { requirePermission(PosPermission.VIEW_PRODUCTS) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(emptyList()); return@flow }
-        val canSeeCost = runCatching { requirePermission(PosPermission.VIEW_PURCHASE_COST) }.isSuccess
-        emitAll(source.map { rows -> if (canSeeCost) rows else rows.map { it.copy(purchaseCostCentavos = 0L) } })
-    }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun securedProducts(source: Flow<List<ProductSummary>>): Flow<List<ProductSummary>> =
+        actorRevision.flatMapLatest {
+            flow {
+                try { requirePermission(PosPermission.VIEW_PRODUCTS) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(emptyList()); return@flow }
+                val canSeeCost = runCatching { requirePermission(PosPermission.VIEW_PURCHASE_COST) }.isSuccess
+                emitAll(source.map { rows -> if (canSeeCost) rows else rows.map { it.copy(purchaseCostCentavos = 0L) } })
+            }
+        }
 
-    private fun <T> securedScalar(permission: PosPermission, source: Flow<T>, deniedValue: T): Flow<T> = flow {
-        try { accessControl.requirePermission(permission) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(deniedValue); return@flow }
-        emitAll(source)
-    }
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private fun <T> securedScalar(permission: PosPermission, source: Flow<T>, deniedValue: T): Flow<T> =
+        actorRevision.flatMapLatest {
+            flow {
+                try { accessControl.requirePermission(permission) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Throwable) { emit(deniedValue); return@flow }
+                emitAll(source)
+            }
+        }
 
     private suspend fun requirePermission(permission: PosPermission): AuthenticatedActor = accessControl.requirePermission(permission)
 
@@ -211,23 +223,25 @@ class PosRepository(
     private fun csvCell(value: String): String = "\"${value.replace("\"", "\"\"")}\""
     @OptIn(ExperimentalCoroutinesApi::class)
     fun observeTodayStats(): Flow<TodayStats> {
-        return flow {
-            val allowed = runCatching { requirePermission(PosPermission.VIEW_TODAYS_SALES) }.getOrNull()
-            if (allowed == null) {
-                emit(null)
-                return@flow
-            }
-            val canSeeProfit = runCatching { requirePermission(PosPermission.VIEW_PROFIT) }.isSuccess
-            val canSeeExpenses = runCatching { requirePermission(PosPermission.VIEW_EXPENSES) }.isSuccess
-            val canSeeStock = runCatching { requirePermission(PosPermission.VIEW_STOCK) }.isSuccess
-            while (true) {
-                emit(Triple(canSeeProfit, canSeeExpenses, canSeeStock))
-                val zone = ZoneId.systemDefault()
-                val now = LocalDate.now(zone)
-                val start = now.atStartOfDay(zone).toInstant().toEpochMilli()
-                val end = now.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-                val untilNextDay = (end - System.currentTimeMillis()).coerceAtLeast(1L)
-                delay(untilNextDay)
+        return actorRevision.flatMapLatest {
+            flow {
+                val allowed = runCatching { requirePermission(PosPermission.VIEW_TODAYS_SALES) }.getOrNull()
+                if (allowed == null) {
+                    emit(null)
+                    return@flow
+                }
+                val canSeeProfit = runCatching { requirePermission(PosPermission.VIEW_PROFIT) }.isSuccess
+                val canSeeExpenses = runCatching { requirePermission(PosPermission.VIEW_EXPENSES) }.isSuccess
+                val canSeeStock = runCatching { requirePermission(PosPermission.VIEW_STOCK) }.isSuccess
+                while (true) {
+                    emit(Triple(canSeeProfit, canSeeExpenses, canSeeStock))
+                    val zone = ZoneId.systemDefault()
+                    val now = LocalDate.now(zone)
+                    val start = now.atStartOfDay(zone).toInstant().toEpochMilli()
+                    val end = now.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+                    val untilNextDay = (end - System.currentTimeMillis()).coerceAtLeast(1L)
+                    delay(untilNextDay)
+                }
             }
         }.flatMapLatest { permissions ->
             if (permissions == null) return@flatMapLatest flowOf(TodayStats())
@@ -271,8 +285,16 @@ class PosRepository(
     suspend fun saleItems(saleId: String): List<SaleItemEntity> { requirePermission(PosPermission.VIEW_SALES_HISTORY); return dao.saleItems(saleId) }
     suspend fun salePayments(saleId: String): List<PaymentEntity> { requirePermission(PosPermission.VIEW_SALES_HISTORY); return dao.salePayments(saleId) }
     suspend fun saleRecord(saleId: String): SaleEntity? { requirePermission(PosPermission.VIEW_SALES_HISTORY); return dao.sale(saleId) }
-    suspend fun saleReceipt(saleId: String, customerName: String?): SaleReceiptData? {
-        requirePermission(PosPermission.REPRINT_SLIP)
+    suspend fun saleReceipt(saleId: String, customerName: String?, forCheckoutPrint: Boolean = false): SaleReceiptData? {
+        if (forCheckoutPrint) {
+            try {
+                requirePermission(PosPermission.CREATE_SALE)
+            } catch (_: AuthException) {
+                requirePermission(PosPermission.REPRINT_SLIP)
+            }
+        } else {
+            requirePermission(PosPermission.REPRINT_SLIP)
+        }
         val sale = dao.sale(saleId) ?: return null
         return SaleReceiptData(sale, dao.saleItems(saleId), dao.salePayments(saleId), customerName)
     }
@@ -756,7 +778,8 @@ class PosRepository(
         val refundTotal = prepared.fold(0L) { total, item -> Math.addExact(total, item.amountCentavos) }
         val refundId = UUID.randomUUID().toString()
         val now = clock()
-        dao.insertRefund(RefundEntity(refundId, sale.id, key, refundTotal, command.reason.trim(), now, command.paymentMethod.name))
+        val activeShiftId = dao.openShiftForCashier(actor.accountId)?.shiftId ?: sale.shiftId
+        dao.insertRefund(RefundEntity(refundId, sale.id, key, refundTotal, command.reason.trim(), now, command.paymentMethod.name, activeShiftId))
         dao.insertRefundItems(prepared.map { item ->
             RefundItemEntity(UUID.randomUUID().toString(), refundId, item.original.id, item.input.quantityMilliUnits, item.amountCentavos, item.input.restock)
         })
@@ -781,6 +804,19 @@ class PosRepository(
         dao.saleByIdempotencyKey(key)?.let { existing -> return@withTransaction savedCheckoutResult(existing.id, existing.totalCentavos) }
         if (command.lines.isEmpty()) throw PosError.InvalidQuantity
 
+        val now = clock()
+        val businessDate = currentBusinessDate(now)
+        val openShift = dao.openShiftForCashier(actor.accountId)
+        val exemptFromShift = isShiftExempt(actor)
+        if (!exemptFromShift) {
+            if (openShift != null && openShift.businessDate != businessDate) {
+                throw PosError.PreviousShiftUnclosed
+            }
+            if (openShift == null) {
+                throw PosError.ShiftRequired
+            }
+        }
+
         val prepared = command.lines.map { line ->
             if (line.quantityMilliUnits <= 0) throw PosError.InvalidQuantity
             val product = dao.product(line.productId) ?: throw PosError.ProductNotFound
@@ -793,7 +829,6 @@ class PosRepository(
             PreparedLine(line, product, unit, baseQty, lineTotal, lineCost)
         }
         val total = prepared.fold(0L) { acc, line -> Math.addExact(acc, line.lineTotalCentavos) }
-        val now = clock()
         val saleId = UUID.randomUUID().toString()
 
         val requiredByProduct = prepared.groupBy { it.product.id }.mapValues { (_, lines) ->
@@ -813,6 +848,9 @@ class PosRepository(
             if (due <= 0) throw PosError.PaymentInvalid
             val isCash = tender.method == PaymentMethod.CASH
             if (!isCash && tender.amountTenderedCentavos > due) throw PosError.PaymentInvalid
+            val reference = if (isCash) null else tender.referenceNumber?.trim()
+                ?.takeIf { it.isNotEmpty() && it.length <= MAX_PAYMENT_REFERENCE_LENGTH }
+                ?: throw PosError.PaymentInvalid
             val applied = minOf(tender.amountTenderedCentavos, due)
             val tenderChange = if (isCash) tender.amountTenderedCentavos - applied else 0L
             paid = Math.addExact(paid, applied)
@@ -825,6 +863,7 @@ class PosRepository(
                 tenderedCentavos = if (isCash) tender.amountTenderedCentavos else null,
                 changeCentavos = tenderChange,
                 createdAtMillis = now,
+                referenceNumber = reference,
             )
         }
         val credit = total - paid
@@ -832,7 +871,20 @@ class PosRepository(
         if (credit > 0 && paid > 0) requirePermission(PosPermission.ACCEPT_PARTIAL_PAYMENT)
         if (credit > 0 && (command.customerId == null || dao.customer(command.customerId) == null)) throw PosError.CustomerRequired
 
-        dao.insertSale(SaleEntity(saleId, key, now, total, command.customerId, "COMPLETED", command.cashierMode, actor.accountId, command.salesChannel.name))
+        dao.insertSale(
+            SaleEntity(
+                id = saleId,
+                idempotencyKey = key,
+                createdAtMillis = now,
+                totalCentavos = total,
+                customerId = command.customerId,
+                status = "COMPLETED",
+                cashierMode = command.cashierMode,
+                cashierAccountId = actor.accountId,
+                salesChannel = command.salesChannel.name,
+                shiftId = openShift?.shiftId,
+            ),
+        )
         dao.insertSaleItems(
             prepared.map { line ->
                 SaleItemEntity(
@@ -864,6 +916,539 @@ class PosRepository(
         }
         dao.insertAudit(AuditLogEntity(UUID.randomUUID().toString(), "SALE_COMPLETED", saleId, "Sale completed", now, actor.accountId))
         CheckoutResult(saleId, total, paid, change, credit)
+    }
+
+    suspend fun currentBusinessDate(nowMillis: Long = clock()): String {
+        val zoneIdString = dao.catalogSetting("shift.timezone")?.trim()?.takeIf { it.isNotEmpty() }
+        val zone = runCatching { zoneIdString?.let(ZoneId::of) }.getOrNull() ?: ZoneId.systemDefault()
+        val cutoffHour = (dao.catalogSetting("shift.cutoff_hour")?.toIntOrNull() ?: 0).coerceIn(0, 23)
+        return java.time.Instant.ofEpochMilli(nowMillis)
+            .atZone(zone)
+            .minusHours(cutoffHour.toLong())
+            .toLocalDate()
+            .toString()
+    }
+
+    suspend fun resolveTerminalId(): String {
+        dao.catalogSetting("shift.terminal_id")?.trim()?.takeIf { it.isNotEmpty() }?.let { return it }
+        val defaultTerminal = "POS-01"
+        dao.saveCatalogSetting(AppSettingEntity("shift.terminal_id", defaultTerminal))
+        return defaultTerminal
+    }
+
+    private suspend fun isShiftExempt(actor: AuthenticatedActor): Boolean {
+        val requireShiftForOwner = dao.catalogSetting("shift.require_for_owner") == "true"
+        if (requireShiftForOwner) return false
+        if (actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER) return true
+        val enabledPermissions = dao.staffPermissions(actor.accountId)
+            .filter { it.enabled }
+            .map { it.permissionCode }
+            .toSet()
+        return PosPermission.MANAGE_STAFF.name in enabledPermissions ||
+            PosPermission.CHANGE_SETTINGS.name in enabledPermissions
+    }
+
+    suspend fun evaluateShiftGate(): ShiftGateState {
+        val actor = runCatching { requirePermission(PosPermission.CREATE_SALE) }.getOrElse {
+            return ShiftGateState.Loading
+        }
+        val now = clock()
+        if (isShiftExempt(actor)) {
+            // Owner/Manager does not need a shift; if an old open shift exists on their account, close it automatically.
+            dao.openShiftForCashier(actor.accountId)?.let { leftover ->
+                val summary = buildLiveShiftSummary(leftover, actor)
+                dao.updateCashierShift(
+                    leftover.copy(
+                        endedAt = now,
+                        expectedCash = summary.expectedCashCentavos,
+                        actualCash = summary.expectedCashCentavos,
+                        variance = 0L,
+                        reconciliationStatus = ReconciliationStatus.BALANCED.name,
+                        shiftStatus = ShiftStatus.CLOSED.name,
+                        transactionCount = summary.transactionCount,
+                        grossSalesCentavos = summary.grossSalesCentavos,
+                        discountsCentavos = summary.discountsCentavos,
+                        refundsCentavos = summary.refundsCentavos,
+                        netSalesCentavos = summary.netSalesCentavos,
+                        cashPaymentsCentavos = summary.cashPaymentsCentavos,
+                        gcashPaymentsCentavos = summary.gcashPaymentsCentavos,
+                        mayaPaymentsCentavos = summary.mayaPaymentsCentavos,
+                        cardPaymentsCentavos = summary.cardPaymentsCentavos,
+                        creditSalesCentavos = summary.creditSalesCentavos,
+                        nonCashPaymentsCentavos = summary.nonCashPaymentsCentavos,
+                        cashInCentavos = summary.cashInCentavos,
+                        cashOutCentavos = summary.cashOutCentavos,
+                        adjustmentsCentavos = summary.adjustmentsCentavos,
+                        cashRefundsCentavos = summary.cashRefundsCentavos,
+                        nonCashRefundsCentavos = summary.nonCashRefundsCentavos,
+                        updatedAt = now,
+                    ),
+                )
+            }
+            return ShiftGateState.NotRequired
+        }
+        val businessDate = currentBusinessDate(now)
+        val terminalId = resolveTerminalId()
+        val cashierName = dao.saleCashierName(actor.accountId)
+            ?: if (actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER) "Store Owner" else actor.accountId
+        val openShift = dao.openShiftForCashier(actor.accountId)
+        return when {
+            openShift == null -> ShiftGateState.NoActiveShift(
+                cashierId = actor.accountId,
+                cashierName = cashierName,
+                terminalId = terminalId,
+                businessDate = businessDate,
+            )
+            openShift.businessDate != businessDate -> ShiftGateState.PreviousShiftOpen(
+                currentBusinessDate = businessDate,
+                summary = buildShiftSummary(openShift, actor),
+            )
+            else -> ShiftGateState.ActiveShift(
+                summary = buildShiftSummary(openShift, actor),
+            )
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val actorRevision = kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    fun notifyActorChanged() {
+        actorRevision.value += 1L
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeShiftGate(): Flow<ShiftGateState> =
+        combine(
+            actorRevision,
+            dao.observeSalesCountPulse(),
+            dao.observeRefundsCountPulse(),
+            dao.observeShiftCashMovementsCountPulse(),
+        ) { revision, salesCount, refundsCount, movementsCount ->
+            "$revision-$salesCount-$refundsCount-$movementsCount"
+        }.flatMapLatest {
+            val actor = runCatching { requirePermission(PosPermission.CREATE_SALE) }.getOrNull()
+                ?: return@flatMapLatest flowOf(ShiftGateState.Loading)
+            dao.observeOpenShiftForCashier(actor.accountId).map {
+                evaluateShiftGate()
+            }
+        }
+
+    suspend fun startShift(command: StartShiftCommand): ShiftSummary = database.withTransaction {
+        val actor = requirePermission(PosPermission.CREATE_SALE)
+        val key = command.idempotencyKey.trim()
+        if (key.isBlank() || command.openingCashCentavos < 0) throw PosError.PaymentInvalid
+        dao.cashierShiftByKey(key)?.let { existing ->
+            return@withTransaction buildShiftSummary(existing, actor)
+        }
+        val now = clock()
+        val businessDate = currentBusinessDate(now)
+        val existingOpen = dao.openShiftForCashier(actor.accountId)
+        if (existingOpen != null) {
+            if (existingOpen.businessDate != businessDate) throw PosError.PreviousShiftUnclosed
+            throw PosError.ShiftAlreadyOpen
+        }
+        val terminalId = command.terminalId?.trim()?.takeIf { it.isNotEmpty() } ?: resolveTerminalId()
+        val terminalOpen = dao.openShiftForTerminal(terminalId)
+        if (terminalOpen != null && terminalOpen.cashierId != actor.accountId) {
+            throw PosError.ShiftAlreadyOpen
+        }
+        val cashierName = dao.saleCashierName(actor.accountId)
+            ?: if (actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER) "Store Owner" else actor.accountId
+        val dateCompact = businessDate.replace("-", "")
+        val suffix = UUID.randomUUID().toString().replace("-", "").take(6).uppercase()
+        val shiftId = "SHF-$dateCompact-$suffix"
+        val entity = CashierShiftEntity(
+            shiftId = shiftId,
+            idempotencyKey = key,
+            cashierId = actor.accountId,
+            cashierNameSnapshot = cashierName,
+            terminalId = terminalId,
+            businessDate = businessDate,
+            startedAt = now,
+            endedAt = null,
+            openingCash = command.openingCashCentavos,
+            expectedCash = command.openingCashCentavos,
+            actualCash = null,
+            variance = null,
+            reconciliationStatus = ReconciliationStatus.PENDING.name,
+            shiftStatus = ShiftStatus.OPEN.name,
+            closingRemarks = null,
+            approvedBy = null,
+            createdAt = now,
+            updatedAt = now,
+        )
+        dao.insertCashierShift(entity)
+        dao.insertAudit(
+            AuditLogEntity(
+                id = UUID.randomUUID().toString(),
+                operation = "SHIFT_STARTED",
+                targetId = shiftId,
+                details = "Shift started ($businessDate) on $terminalId with opening cash ${command.openingCashCentavos} centavos",
+                occurredAtMillis = now,
+                actorAccountId = actor.accountId,
+            ),
+        )
+        buildShiftSummary(entity, actor)
+    }
+
+    suspend fun recordShiftCashMovement(
+        idempotencyKey: String,
+        shiftId: String,
+        movementType: CashMovementType,
+        amountCentavos: Long,
+        reason: String,
+    ): ShiftSummary = database.withTransaction {
+        val actor = requirePermission(PosPermission.CREATE_SALE)
+        val key = idempotencyKey.trim()
+        val cleanReason = reason.trim()
+        val validAmount = when (movementType) {
+            CashMovementType.CASH_IN, CashMovementType.CASH_OUT -> amountCentavos > 0L
+            CashMovementType.ADJUSTMENT -> amountCentavos != 0L
+        }
+        if (key.isBlank() || cleanReason.isBlank() || !validAmount) throw PosError.PaymentInvalid
+        val shift = dao.cashierShift(shiftId) ?: throw PosError.InvalidQuantity
+        if (shift.shiftStatus != ShiftStatus.OPEN.name) throw PosError.ShiftAlreadyClosed
+        if (shift.cashierId != actor.accountId && actor.role != com.aesprt.marisuki.domain.auth.AccountRole.OWNER) {
+            throw AuthException(AuthFailure.Validation("Only the assigned cashier or store owner can record drawer movements for this shift."))
+        }
+        if (dao.shiftCashMovementByKey(key) != null) {
+            return@withTransaction buildShiftSummary(shift, actor)
+        }
+        val now = clock()
+        val movementId = UUID.randomUUID().toString()
+        dao.insertShiftCashMovement(
+            ShiftCashMovementEntity(
+                movementId = movementId,
+                idempotencyKey = key,
+                shiftId = shift.shiftId,
+                movementType = movementType.name,
+                amount = amountCentavos,
+                reason = cleanReason,
+                createdBy = actor.accountId,
+                createdAt = now,
+            ),
+        )
+        dao.insertAudit(
+            AuditLogEntity(
+                id = UUID.randomUUID().toString(),
+                operation = "SHIFT_${movementType.name}",
+                targetId = shift.shiftId,
+                details = "${movementType.name} recorded: $amountCentavos centavos ($cleanReason)",
+                occurredAtMillis = now,
+                actorAccountId = actor.accountId,
+            ),
+        )
+        buildShiftSummary(shift, actor)
+    }
+
+    suspend fun closeShift(command: CloseShiftCommand): CloseShiftResult = database.withTransaction {
+        val actor = requirePermission(PosPermission.CREATE_SALE)
+        if (command.idempotencyKey.isBlank() || command.actualCashCentavos < 0L) throw PosError.PaymentInvalid
+        val shift = dao.cashierShift(command.shiftId) ?: throw PosError.InvalidQuantity
+        if (shift.cashierId != actor.accountId && actor.role != com.aesprt.marisuki.domain.auth.AccountRole.OWNER) {
+            throw AuthException(AuthFailure.Validation("Only the assigned cashier or store owner can close this shift."))
+        }
+        if (shift.shiftStatus == ShiftStatus.CLOSED.name) {
+            return@withTransaction CloseShiftResult(
+                summary = buildShiftSummary(shift, actor),
+                wasAlreadyClosed = true,
+            )
+        }
+        val liveSummary = buildLiveShiftSummary(shift, actor)
+        val outcome = ShiftReconciliationCalculator.reconcile(
+            expectedCashCentavos = liveSummary.expectedCashCentavos,
+            actualCashCentavos = command.actualCashCentavos,
+        )
+        val cleanRemarks = command.closingRemarks?.trim()?.takeIf { it.isNotEmpty() }
+        if (outcome.status != ReconciliationStatus.BALANCED && cleanRemarks == null) {
+            throw PosError.ShiftVarianceReasonRequired
+        }
+        val approvalThreshold = dao.catalogSetting("shift.variance_approval_threshold_centavos")?.toLongOrNull() ?: 0L
+        val approvedBy = command.approvedBy?.trim()?.takeIf { it.isNotEmpty() }
+            ?: if (actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER) actor.accountId else null
+        if (approvalThreshold > 0L &&
+            kotlin.math.abs(outcome.varianceCentavos) >= approvalThreshold &&
+            approvedBy == null
+        ) {
+            throw PosError.ShiftApprovalRequired
+        }
+        val now = clock()
+        val closedEntity = shift.copy(
+            endedAt = now,
+            expectedCash = outcome.expectedCashCentavos,
+            actualCash = outcome.actualCashCentavos,
+            variance = outcome.varianceCentavos,
+            reconciliationStatus = outcome.status.name,
+            shiftStatus = ShiftStatus.CLOSED.name,
+            closingRemarks = cleanRemarks,
+            approvedBy = approvedBy,
+            transactionCount = liveSummary.transactionCount,
+            grossSalesCentavos = liveSummary.grossSalesCentavos,
+            discountsCentavos = liveSummary.discountsCentavos,
+            refundsCentavos = liveSummary.refundsCentavos,
+            netSalesCentavos = liveSummary.netSalesCentavos,
+            cashPaymentsCentavos = liveSummary.cashPaymentsCentavos,
+            gcashPaymentsCentavos = liveSummary.gcashPaymentsCentavos,
+            mayaPaymentsCentavos = liveSummary.mayaPaymentsCentavos,
+            cardPaymentsCentavos = liveSummary.cardPaymentsCentavos,
+            creditSalesCentavos = liveSummary.creditSalesCentavos,
+            nonCashPaymentsCentavos = liveSummary.nonCashPaymentsCentavos,
+            cashInCentavos = liveSummary.cashInCentavos,
+            cashOutCentavos = liveSummary.cashOutCentavos,
+            adjustmentsCentavos = liveSummary.adjustmentsCentavos,
+            cashRefundsCentavos = liveSummary.cashRefundsCentavos,
+            nonCashRefundsCentavos = liveSummary.nonCashRefundsCentavos,
+            updatedAt = now,
+        )
+        dao.updateCashierShift(closedEntity)
+        dao.insertAudit(
+            AuditLogEntity(
+                id = UUID.randomUUID().toString(),
+                operation = "SHIFT_CLOSED",
+                targetId = closedEntity.shiftId,
+                details = "Shift closed (${outcome.status.name}): expected=${outcome.expectedCashCentavos}, actual=${outcome.actualCashCentavos}, variance=${outcome.varianceCentavos}",
+                occurredAtMillis = now,
+                actorAccountId = actor.accountId,
+            ),
+        )
+        CloseShiftResult(
+            summary = buildShiftSummary(closedEntity, actor),
+            wasAlreadyClosed = false,
+        )
+    }
+
+    suspend fun saveShiftReportMetadata(
+        shiftId: String,
+        fileName: String,
+        fileUri: String?,
+        status: ShiftReportStatus,
+    ): ShiftReportEntity = database.withTransaction {
+        val actor = requirePermission(PosPermission.CREATE_SALE)
+        val existing = dao.shiftReportForShift(shiftId)
+        val now = clock()
+        val reportId = existing?.reportId ?: "RPT-${shiftId.removePrefix("SHF-")}"
+        val entity = ShiftReportEntity(
+            reportId = reportId,
+            shiftId = shiftId,
+            fileName = fileName,
+            fileUri = fileUri,
+            generatedAt = now,
+            reportStatus = status.name,
+        )
+        dao.upsertShiftReport(entity)
+        dao.insertAudit(
+            AuditLogEntity(
+                id = UUID.randomUUID().toString(),
+                operation = "SHIFT_REPORT_${status.name}",
+                targetId = shiftId,
+                details = "End Shift PDF report ${status.name.lowercase(java.util.Locale.ROOT)}: $fileName",
+                occurredAtMillis = now,
+                actorAccountId = actor.accountId,
+            ),
+        )
+        entity
+    }
+
+    suspend fun getShiftSummary(shiftId: String): ShiftSummary? {
+        val actor = runCatching { requirePermission(PosPermission.CREATE_SALE) }.getOrNull()
+            ?: runCatching { requirePermission(PosPermission.VIEW_HISTORICAL_SALES) }.getOrNull()
+            ?: return null
+        val shift = dao.cashierShift(shiftId) ?: return null
+        val canViewAll = actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER ||
+            hasPermission(PosPermission.VIEW_HISTORICAL_SALES)
+        if (!canViewAll && shift.cashierId != actor.accountId) return null
+        return buildShiftSummary(shift, actor)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    fun observeHistoricalShiftSummaries(): Flow<List<ShiftSummary>> =
+        actorRevision.flatMapLatest {
+            val actor = runCatching { requirePermission(PosPermission.CREATE_SALE) }.getOrNull()
+                ?: runCatching { requirePermission(PosPermission.VIEW_HISTORICAL_SALES) }.getOrNull()
+                ?: return@flatMapLatest flowOf(emptyList())
+            val canViewAll = actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER ||
+                hasPermission(PosPermission.VIEW_HISTORICAL_SALES)
+            val shiftsFlow = if (canViewAll) {
+                dao.observeClosedShifts()
+            } else {
+                dao.observeClosedShiftsForCashier(actor.accountId)
+            }
+            combine(shiftsFlow, dao.observeShiftReports()) { shifts, reports ->
+                val reportsByShift = reports.associateBy { it.shiftId }
+                shifts.map { shift ->
+                    buildClosedShiftSummary(shift, actor, reportsByShift[shift.shiftId])
+                }
+            }
+        }
+
+    suspend fun storeNameAndAddress(): Pair<String, String?> {
+        val profile = dao.storeProfile()
+        val name = profile?.storeName?.takeIf { it.isNotBlank() } ?: "MariSuki POS"
+        return name to profile?.address?.takeIf { it.isNotBlank() }
+    }
+
+    private suspend fun buildShiftSummary(
+        shift: CashierShiftEntity,
+        actor: AuthenticatedActor,
+    ): ShiftSummary =
+        if (shift.shiftStatus == ShiftStatus.CLOSED.name) {
+            buildClosedShiftSummary(shift, actor, dao.shiftReportForShift(shift.shiftId))
+        } else {
+            buildLiveShiftSummary(shift, actor)
+        }
+
+    private suspend fun buildLiveShiftSummary(
+        shift: CashierShiftEntity,
+        actor: AuthenticatedActor,
+    ): ShiftSummary {
+        val saleCount = dao.shiftCompletedSaleCount(shift.shiftId)
+        val grossSales = dao.shiftGrossSalesCentavos(shift.shiftId)
+        val discounts = 0L
+        val refunds = dao.shiftRefundTotalCentavos(shift.shiftId)
+        val netSales = grossSales - discounts - refunds
+        val cashPayments = dao.shiftPaymentTotalByMethod(shift.shiftId, PaymentMethod.CASH.name)
+        val gcashPayments = dao.shiftPaymentTotalByMethod(shift.shiftId, PaymentMethod.GCASH.name)
+        val mayaPayments = dao.shiftPaymentTotalByMethod(shift.shiftId, PaymentMethod.MAYA.name)
+        val cardPayments = 0L
+        val creditSales = dao.shiftCreditSalesCentavos(shift.shiftId)
+        val nonCashPayments = gcashPayments + mayaPayments + cardPayments
+        val movements = dao.shiftCashMovements(shift.shiftId).map { entity ->
+            ShiftCashMovementRecord(
+                movementId = entity.movementId,
+                shiftId = entity.shiftId,
+                movementType = runCatching { CashMovementType.valueOf(entity.movementType) }.getOrDefault(CashMovementType.CASH_IN),
+                amountCentavos = entity.amount,
+                reason = entity.reason,
+                createdBy = entity.createdBy,
+                createdAt = entity.createdAt,
+            )
+        }
+        val cashIn = movements.filter { it.movementType == CashMovementType.CASH_IN }.sumOf { it.amountCentavos }
+        val cashOut = movements.filter { it.movementType == CashMovementType.CASH_OUT }.sumOf { it.amountCentavos }
+        val adjustments = movements.filter { it.movementType == CashMovementType.ADJUSTMENT }.sumOf { it.amountCentavos }
+        val cashRefunds = dao.shiftRefundTotalByMethod(shift.shiftId, RefundMethod.CASH.name)
+        val nonCashRefunds = refunds - cashRefunds
+        val expectedCash = ShiftReconciliationCalculator.calculateExpectedCash(
+            openingCashCentavos = shift.openingCash,
+            netCashPaymentsCentavos = cashPayments,
+            cashInCentavos = cashIn,
+            cashOutCentavos = cashOut,
+            cashRefundsCentavos = cashRefunds,
+            adjustmentsCentavos = adjustments,
+        )
+        val report = dao.shiftReportForShift(shift.shiftId)
+        val financialVisible = actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER ||
+            shift.cashierId == actor.accountId ||
+            hasPermission(PosPermission.VIEW_TODAYS_SALES) ||
+            hasPermission(PosPermission.VIEW_HISTORICAL_SALES)
+        return ShiftSummary(
+            shiftId = shift.shiftId,
+            cashierId = shift.cashierId,
+            cashierName = shift.cashierNameSnapshot,
+            terminalId = shift.terminalId,
+            businessDate = shift.businessDate,
+            startedAt = shift.startedAt,
+            endedAt = shift.endedAt,
+            shiftStatus = ShiftStatus.OPEN,
+            openingCashCentavos = shift.openingCash,
+            transactionCount = saleCount,
+            grossSalesCentavos = grossSales,
+            discountsCentavos = discounts,
+            refundsCentavos = refunds,
+            netSalesCentavos = netSales,
+            cashPaymentsCentavos = cashPayments,
+            gcashPaymentsCentavos = gcashPayments,
+            mayaPaymentsCentavos = mayaPayments,
+            cardPaymentsCentavos = cardPayments,
+            creditSalesCentavos = creditSales,
+            nonCashPaymentsCentavos = nonCashPayments,
+            cashInCentavos = cashIn,
+            cashOutCentavos = cashOut,
+            adjustmentsCentavos = adjustments,
+            cashRefundsCentavos = cashRefunds,
+            nonCashRefundsCentavos = nonCashRefunds,
+            expectedCashCentavos = expectedCash,
+            actualCashCentavos = shift.actualCash,
+            varianceCentavos = shift.variance,
+            reconciliationStatus = runCatching { ReconciliationStatus.valueOf(shift.reconciliationStatus) }
+                .getOrDefault(ReconciliationStatus.PENDING),
+            closingRemarks = shift.closingRemarks,
+            approvedBy = shift.approvedBy,
+            movements = movements,
+            reportId = report?.reportId,
+            reportFileName = report?.fileName,
+            reportFileUri = report?.fileUri,
+            reportStatus = report?.reportStatus?.let { status ->
+                runCatching { ShiftReportStatus.valueOf(status) }.getOrNull()
+            },
+            reportGeneratedAt = report?.generatedAt,
+            financialTotalsVisible = financialVisible,
+        )
+    }
+
+    private suspend fun buildClosedShiftSummary(
+        shift: CashierShiftEntity,
+        actor: AuthenticatedActor,
+        report: ShiftReportEntity?,
+    ): ShiftSummary {
+        val movements = dao.shiftCashMovements(shift.shiftId).map { entity ->
+            ShiftCashMovementRecord(
+                movementId = entity.movementId,
+                shiftId = entity.shiftId,
+                movementType = runCatching { CashMovementType.valueOf(entity.movementType) }.getOrDefault(CashMovementType.CASH_IN),
+                amountCentavos = entity.amount,
+                reason = entity.reason,
+                createdBy = entity.createdBy,
+                createdAt = entity.createdAt,
+            )
+        }
+        val financialVisible = actor.role == com.aesprt.marisuki.domain.auth.AccountRole.OWNER ||
+            shift.cashierId == actor.accountId ||
+            hasPermission(PosPermission.VIEW_TODAYS_SALES) ||
+            hasPermission(PosPermission.VIEW_HISTORICAL_SALES)
+        return ShiftSummary(
+            shiftId = shift.shiftId,
+            cashierId = shift.cashierId,
+            cashierName = shift.cashierNameSnapshot,
+            terminalId = shift.terminalId,
+            businessDate = shift.businessDate,
+            startedAt = shift.startedAt,
+            endedAt = shift.endedAt,
+            shiftStatus = ShiftStatus.CLOSED,
+            openingCashCentavos = shift.openingCash,
+            transactionCount = shift.transactionCount,
+            grossSalesCentavos = shift.grossSalesCentavos,
+            discountsCentavos = shift.discountsCentavos,
+            refundsCentavos = shift.refundsCentavos,
+            netSalesCentavos = shift.netSalesCentavos,
+            cashPaymentsCentavos = shift.cashPaymentsCentavos,
+            gcashPaymentsCentavos = shift.gcashPaymentsCentavos,
+            mayaPaymentsCentavos = shift.mayaPaymentsCentavos,
+            cardPaymentsCentavos = shift.cardPaymentsCentavos,
+            creditSalesCentavos = shift.creditSalesCentavos,
+            nonCashPaymentsCentavos = shift.nonCashPaymentsCentavos,
+            cashInCentavos = shift.cashInCentavos,
+            cashOutCentavos = shift.cashOutCentavos,
+            adjustmentsCentavos = shift.adjustmentsCentavos,
+            cashRefundsCentavos = shift.cashRefundsCentavos,
+            nonCashRefundsCentavos = shift.nonCashRefundsCentavos,
+            expectedCashCentavos = shift.expectedCash,
+            actualCashCentavos = shift.actualCash,
+            varianceCentavos = shift.variance,
+            reconciliationStatus = runCatching { ReconciliationStatus.valueOf(shift.reconciliationStatus) }
+                .getOrDefault(ReconciliationStatus.BALANCED),
+            closingRemarks = shift.closingRemarks,
+            approvedBy = shift.approvedBy,
+            movements = movements,
+            reportId = report?.reportId,
+            reportFileName = report?.fileName,
+            reportFileUri = report?.fileUri,
+            reportStatus = report?.reportStatus?.let { status ->
+                runCatching { ShiftReportStatus.valueOf(status) }.getOrNull()
+            },
+            reportGeneratedAt = report?.generatedAt,
+            financialTotalsVisible = financialVisible,
+        )
     }
 
     private suspend fun savedCheckoutResult(saleId: String, total: Long): CheckoutResult {

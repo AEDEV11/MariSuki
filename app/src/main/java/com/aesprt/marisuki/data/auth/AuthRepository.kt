@@ -267,6 +267,13 @@ class AuthRepository(
         account
     }
 
+    suspend fun verifyAnyOwnerApprovalPin(pin: String): String {
+        val owner = dao.enabledOwnerAccount()
+            ?: throw AuthException(AuthFailure.OwnerPinRejected)
+        val verified = verifyOwnerApprovalPin(owner.id, pin)
+        return verified.displayName
+    }
+
     override suspend fun requestOwnerApproval(
         requesterAccountId: String,
         operationKey: String,

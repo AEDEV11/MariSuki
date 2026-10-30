@@ -88,7 +88,13 @@ data class CustomerEntity(
 @Entity(
     tableName = "sales",
     foreignKeys = [ForeignKey(entity = CustomerEntity::class, parentColumns = ["id"], childColumns = ["customerId"], onDelete = ForeignKey.SET_NULL)],
-    indices = [Index("createdAtMillis"), Index("customerId"), Index("cashierAccountId"), Index(value = ["idempotencyKey"], unique = true)],
+    indices = [
+        Index("createdAtMillis"),
+        Index("customerId"),
+        Index("cashierAccountId"),
+        Index("shiftId"),
+        Index(value = ["idempotencyKey"], unique = true),
+    ],
 )
 data class SaleEntity(
     @androidx.room.PrimaryKey val id: String,
@@ -100,6 +106,7 @@ data class SaleEntity(
     val cashierMode: Boolean,
     val cashierAccountId: String? = null,
     val salesChannel: String = "TINGI",
+    val shiftId: String? = null,
 )
 
 @Entity(
@@ -137,6 +144,8 @@ data class PaymentEntity(
     val tenderedCentavos: Long?,
     val changeCentavos: Long,
     val createdAtMillis: Long,
+    /** GCash/Maya transaction reference captured at checkout; null for cash and pre-v7 payments. */
+    val referenceNumber: String? = null,
 )
 
 @Entity(
@@ -224,7 +233,7 @@ data class ExpenseEntity(
 @Entity(
     tableName = "refunds",
     foreignKeys = [ForeignKey(entity = SaleEntity::class, parentColumns = ["id"], childColumns = ["saleId"], onDelete = ForeignKey.RESTRICT)],
-    indices = [Index("saleId"), Index(value = ["idempotencyKey"], unique = true)],
+    indices = [Index("saleId"), Index("shiftId"), Index(value = ["idempotencyKey"], unique = true)],
 )
 data class RefundEntity(
     @androidx.room.PrimaryKey val id: String,
@@ -234,6 +243,7 @@ data class RefundEntity(
     val reason: String,
     val createdAtMillis: Long,
     val refundMethod: String = "CASH",
+    val shiftId: String? = null,
 )
 
 @Entity(
@@ -387,3 +397,104 @@ data class RestrictedActionAuditEntity(
     val expiresAtMillis: Long,
     val completedAtMillis: Long?,
 )
+
+@Entity(
+    tableName = "cashier_shifts",
+    indices = [
+        Index("cashierId"),
+        Index("terminalId"),
+        Index("businessDate"),
+        Index("shiftStatus"),
+        Index("startedAt"),
+        Index("reconciliationStatus"),
+        Index(value = ["idempotencyKey"], unique = true),
+    ],
+)
+data class CashierShiftEntity(
+    @androidx.room.PrimaryKey val shiftId: String,
+    val idempotencyKey: String,
+    val cashierId: String,
+    val cashierNameSnapshot: String,
+    val terminalId: String,
+    val businessDate: String,
+    val startedAt: Long,
+    val endedAt: Long? = null,
+    val openingCash: Long,
+    val expectedCash: Long = 0L,
+    val actualCash: Long? = null,
+    val variance: Long? = null,
+    val reconciliationStatus: String = "PENDING",
+    val shiftStatus: String = "OPEN",
+    val closingRemarks: String? = null,
+    val approvedBy: String? = null,
+    val transactionCount: Int = 0,
+    val grossSalesCentavos: Long = 0L,
+    val discountsCentavos: Long = 0L,
+    val refundsCentavos: Long = 0L,
+    val netSalesCentavos: Long = 0L,
+    val cashPaymentsCentavos: Long = 0L,
+    val gcashPaymentsCentavos: Long = 0L,
+    val mayaPaymentsCentavos: Long = 0L,
+    val cardPaymentsCentavos: Long = 0L,
+    val creditSalesCentavos: Long = 0L,
+    val nonCashPaymentsCentavos: Long = 0L,
+    val cashInCentavos: Long = 0L,
+    val cashOutCentavos: Long = 0L,
+    val adjustmentsCentavos: Long = 0L,
+    val cashRefundsCentavos: Long = 0L,
+    val nonCashRefundsCentavos: Long = 0L,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+@Entity(
+    tableName = "shift_cash_movements",
+    foreignKeys = [
+        ForeignKey(
+            entity = CashierShiftEntity::class,
+            parentColumns = ["shiftId"],
+            childColumns = ["shiftId"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index("shiftId"),
+        Index("createdAt"),
+        Index(value = ["idempotencyKey"], unique = true),
+    ],
+)
+data class ShiftCashMovementEntity(
+    @androidx.room.PrimaryKey val movementId: String,
+    val idempotencyKey: String,
+    val shiftId: String,
+    val movementType: String,
+    val amount: Long,
+    val reason: String,
+    val createdBy: String,
+    val createdAt: Long,
+)
+
+@Entity(
+    tableName = "shift_reports",
+    foreignKeys = [
+        ForeignKey(
+            entity = CashierShiftEntity::class,
+            parentColumns = ["shiftId"],
+            childColumns = ["shiftId"],
+            onDelete = ForeignKey.RESTRICT,
+        ),
+    ],
+    indices = [
+        Index(value = ["shiftId"], unique = true),
+        Index("generatedAt"),
+    ],
+)
+data class ShiftReportEntity(
+    @androidx.room.PrimaryKey val reportId: String,
+    val shiftId: String,
+    val fileName: String,
+    val fileUri: String?,
+    val generatedAt: Long,
+    val reportStatus: String,
+)
+

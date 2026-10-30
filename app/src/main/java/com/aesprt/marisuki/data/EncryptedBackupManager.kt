@@ -210,30 +210,38 @@ class EncryptedBackupManager(
                         if (schemaVersion !in 3..4) throw IOException("This older backup was made with an unsupported database version.")
                     } else if (formatVersion == 2 && schemaVersion != 5) {
                         throw IOException("This backup was made with an unsupported database version.")
-                    } else if (formatVersion == 3 && schemaVersion != sqlite.version) {
+                    } else if (formatVersion == 3 && schemaVersion !in 6..sqlite.version) {
                         throw IOException("This backup was made with a different database version. Update or restore it with the matching app version.")
                     }
                     val imageNameMapping = if (formatVersion == 3) readProductImages(payload, restoredPhotoNames) else emptyMap()
-                    val restoreTables = if (formatVersion == 1) TABLES_V1 else TABLES
+                    val restoreTables = when {
+                        formatVersion == 1 -> TABLES_V1
+                        schemaVersion < 8 -> TABLES_V6
+                        else -> TABLES
+                    }
                     val tableCount = payload.readInt()
                     if (tableCount != restoreTables.size) throw IOException("The backup is incomplete or has an unsupported schema.")
                     val columnsByTable = restoreTables.associateWith { table ->
                         sqlite.query("SELECT * FROM `$table` LIMIT 0").use { it.columnNames.toList() }
                     }
-                    restoreTables.asReversed().forEach { table -> sqlite.execSQL("DELETE FROM `$table`") }
+                    TABLES.asReversed().forEach { table -> sqlite.execSQL("DELETE FROM `$table`") }
                     restoreTables.forEach { table ->
                         if (payload.readString() != table) throw IOException("The backup table list is invalid.")
                         val columnCount = payload.readInt()
                         val liveColumns = columnsByTable.getValue(table)
-                        val expectedColumns = if (formatVersion == 1) {
-                            liveColumns.filterNot { column ->
-                                table == "sales" && (column == "salesChannel" || schemaVersion < 4 && column == "cashierAccountId") ||
-                                    table == "audit_log" && schemaVersion < 4 && column == "actorAccountId" ||
-                                    table == "products" && column == "imageFileName"
-                            }
-                        } else if (formatVersion == 2) {
-                            liveColumns.filterNot { table == "products" && it == "imageFileName" }
-                        } else liveColumns
+                        val expectedColumns = liveColumns.filterNot { column ->
+                            (schemaVersion < 7 && table == "payments" && column == "referenceNumber") ||
+                                (schemaVersion < 8 && (
+                                    (table == "sales" && column == "shiftId") ||
+                                        (table == "refunds" && column == "shiftId")
+                                    )) ||
+                                (formatVersion == 1 && (
+                                    (table == "sales" && (column == "salesChannel" || (schemaVersion < 4 && column == "cashierAccountId"))) ||
+                                        (table == "audit_log" && schemaVersion < 4 && column == "actorAccountId") ||
+                                        (table == "products" && column == "imageFileName")
+                                    )) ||
+                                (formatVersion == 2 && table == "products" && column == "imageFileName")
+                        }
                         if (columnCount !in 1..MAX_COLUMNS || columnCount != expectedColumns.size) {
                             throw IOException("The backup table layout is invalid.")
                         }
@@ -323,8 +331,11 @@ class EncryptedBackupManager(
             "customer_payments", "stock_deliveries", "stock_delivery_items", "expenses", "refunds",
             "refund_items", "audit_log", "app_settings", "printer_configurations",
         )
-        private val TABLES = TABLES_V1 + listOf(
+        private val TABLES_V6 = TABLES_V1 + listOf(
             "store_profile", "setup_drafts", "staff_accounts", "staff_permissions", "auth_attempt_state", "restricted_action_audit",
+        )
+        private val TABLES = TABLES_V6 + listOf(
+            "cashier_shifts", "shift_cash_movements", "shift_reports",
         )
 
         private fun autoKeyAlias() = if (BuildConfig.DEBUG) "marisuki_automatic_backup_key_debug" else "marisuki_automatic_backup_key"

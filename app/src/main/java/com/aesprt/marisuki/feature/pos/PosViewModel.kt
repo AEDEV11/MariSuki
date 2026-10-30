@@ -82,10 +82,23 @@ sealed interface PosEvent {
     data object BackupSaved : PosEvent
     data object BackupRestored : PosEvent
     data object ReportExported : PosEvent
+    data class ShiftStarted(val summary: com.aesprt.marisuki.domain.model.ShiftSummary) : PosEvent
+    data class ShiftClosed(val summary: com.aesprt.marisuki.domain.model.ShiftSummary) : PosEvent
     data class Error(val message: PosMessage) : PosEvent
 }
 
-enum class PosMessage { INVALID, OUT_OF_STOCK, CUSTOMER_REQUIRED, PRODUCT_UNAVAILABLE, PAYMENT_INVALID, DUPLICATE, ACCESS_DENIED, GENERAL }
+enum class PosMessage {
+    INVALID,
+    OUT_OF_STOCK,
+    CUSTOMER_REQUIRED,
+    PRODUCT_UNAVAILABLE,
+    PAYMENT_INVALID,
+    DUPLICATE,
+    ACCESS_DENIED,
+    SHIFT_REQUIRED,
+    PREVIOUS_SHIFT_OPEN,
+    GENERAL,
+}
 
 data class PendingPriceChange(val preview: PriceApprovalPreview, val product: NewProduct)
 data class SalesReportScreenState(val report: SalesReport? = null, val isLoading: Boolean = false, val error: PosMessage? = null)
@@ -96,6 +109,7 @@ class PosViewModel(
     private val preferences: AppPreferences,
     private val backupManager: EncryptedBackupManager,
     private val authRepository: AuthRepository,
+    private val shiftReportExporter: com.aesprt.marisuki.feature.shift.EndShiftReportPdfExporter? = null,
 ) : ViewModel() {
     private val query = MutableStateFlow("")
     private val _cart = MutableStateFlow<List<CartLineState>>(emptyList())
@@ -143,6 +157,16 @@ class PosViewModel(
     val hasAutomaticBackup: StateFlow<Boolean> = _hasAutomaticBackup.asStateFlow()
     private val _salesReport = MutableStateFlow(SalesReportScreenState(isLoading = true))
     val salesReport: StateFlow<SalesReportScreenState> = _salesReport.asStateFlow()
+    val shiftGateState: StateFlow<com.aesprt.marisuki.domain.model.ShiftGateState> =
+        repository.observeShiftGate()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), com.aesprt.marisuki.domain.model.ShiftGateState.Loading)
+    val historicalShiftReports: StateFlow<List<com.aesprt.marisuki.domain.model.ShiftSummary>> =
+        repository.observeHistoricalShiftSummaries()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    private val _lastClosedShiftReport = MutableStateFlow<com.aesprt.marisuki.domain.model.ShiftSummary?>(null)
+    val lastClosedShiftReport: StateFlow<com.aesprt.marisuki.domain.model.ShiftSummary?> = _lastClosedShiftReport.asStateFlow()
+    private val _shiftError = MutableStateFlow<String?>(null)
+    val shiftError: StateFlow<String?> = _shiftError.asStateFlow()
 
     init { refreshAutomaticBackup() }
 
@@ -201,10 +225,12 @@ class PosViewModel(
             if (account == null) {
                 _ownerAccessGranted.value = false
                 _permissions.value = emptySet()
+                repository.notifyActorChanged()
                 return@launch
             }
             _ownerAccessGranted.value = account.role == AccountRole.OWNER
             _permissions.value = try { authRepository.currentPermissions() } catch (_: Throwable) { emptySet() }
+            repository.notifyActorChanged()
         }
     }
 
@@ -251,7 +277,8 @@ class PosViewModel(
         _hasAutomaticBackup.value = true
     }
     suspend fun unitsFor(productId: String) = repository.productUnits(productId)
-    suspend fun saleReceipt(saleId: String, customerName: String?) = repository.saleReceipt(saleId, customerName)
+    suspend fun saleReceipt(saleId: String, customerName: String?, forCheckoutPrint: Boolean = false) =
+        repository.saleReceipt(saleId, customerName, forCheckoutPrint)
     suspend fun ensureProductBarcode(productId: String) = repository.ensureProductBarcode(productId)
 
     fun addProduct(product: ProductSummary) {
@@ -506,7 +533,14 @@ class PosViewModel(
         }
     }
 
-    fun checkout(method: PaymentMethod?, amountText: String, customerId: String?, salesChannel: SaleChannel = SaleChannel.TINGI) {
+    fun checkout(
+        method: PaymentMethod?,
+        amountText: String,
+        customerId: String?,
+        salesChannel: SaleChannel = SaleChannel.TINGI,
+        referenceNumber: String? = null,
+        onCompleted: (CheckoutResult) -> Unit = {},
+    ) {
         if (_isSubmitting.value) return
         val lines = _cart.value
         if (lines.isEmpty()) return
@@ -518,7 +552,8 @@ class PosViewModel(
                     amountText.isBlank() -> cartTotalCentavos
                     else -> parseCentavos(amountText) ?: throw PosError.PaymentInvalid
                 }
-                val tenders = if (method == null || amount == null) emptyList() else listOf(TenderInput(method, amount))
+                val tenders = if (method == null || amount == null) emptyList()
+                else listOf(TenderInput(method, amount, referenceNumber?.trim()?.ifBlank { null }))
                 val result = repository.checkout(
                     CheckoutCommand(
                         idempotencyKey = checkoutKey,
@@ -531,6 +566,7 @@ class PosViewModel(
                 _cart.value = emptyList()
                 checkoutKey = UUID.randomUUID().toString()
                 _events.send(PosEvent.SaleSaved(result))
+                onCompleted(result)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -540,6 +576,202 @@ class PosViewModel(
             }
         }
     }
+
+    fun clearShiftError() {
+        _shiftError.value = null
+    }
+
+    fun dismissLastClosedShiftReport() {
+        _lastClosedShiftReport.value = null
+    }
+
+    fun startShift(
+        openingCashText: String,
+        terminalId: String? = null,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onStarted: (com.aesprt.marisuki.domain.model.ShiftSummary) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            if (_isWorking.value) return@launch
+            _isWorking.value = true
+            _shiftError.value = null
+            try {
+                val openingCentavos = if (openingCashText.isBlank()) 0L
+                else parseCentavos(openingCashText) ?: throw PosError.PaymentInvalid
+                val summary = repository.startShift(
+                    com.aesprt.marisuki.domain.model.StartShiftCommand(
+                        idempotencyKey = idempotencyKey,
+                        openingCashCentavos = openingCentavos,
+                        terminalId = terminalId,
+                    ),
+                )
+                _events.send(PosEvent.ShiftStarted(summary))
+                onStarted(summary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _shiftError.value = error.message ?: "Unable to start shift."
+                _events.send(PosEvent.Error(error.toMessage()))
+            } finally {
+                _isWorking.value = false
+            }
+        }
+    }
+
+    fun recordShiftCashMovement(
+        shiftId: String,
+        movementType: com.aesprt.marisuki.domain.model.CashMovementType,
+        amountText: String,
+        reason: String,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onRecorded: (com.aesprt.marisuki.domain.model.ShiftSummary) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            if (_isWorking.value) return@launch
+            _isWorking.value = true
+            _shiftError.value = null
+            try {
+                val amountCentavos = parseCentavos(amountText) ?: throw PosError.PaymentInvalid
+                val summary = repository.recordShiftCashMovement(
+                    idempotencyKey = idempotencyKey,
+                    shiftId = shiftId,
+                    movementType = movementType,
+                    amountCentavos = amountCentavos,
+                    reason = reason,
+                )
+                onRecorded(summary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _shiftError.value = error.message ?: "Unable to record drawer movement."
+                _events.send(PosEvent.Error(error.toMessage()))
+            } finally {
+                _isWorking.value = false
+            }
+        }
+    }
+
+    fun closeShiftAndGenerateReport(
+        shiftId: String,
+        actualCashCentavos: Long,
+        closingRemarks: String?,
+        ownerPin: String? = null,
+        idempotencyKey: String = UUID.randomUUID().toString(),
+        onCompleted: (com.aesprt.marisuki.domain.model.ShiftSummary) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            if (_isWorking.value) return@launch
+            _isWorking.value = true
+            _shiftError.value = null
+            try {
+                val cleanPin = ownerPin?.trim()?.takeIf { it.isNotEmpty() }
+                val approvedBy = if (cleanPin != null) {
+                    val ownerName = authRepository.verifyAnyOwnerApprovalPin(cleanPin)
+                    "Approved by $ownerName (Owner PIN)"
+                } else null
+
+                val closeResult = repository.closeShift(
+                    com.aesprt.marisuki.domain.model.CloseShiftCommand(
+                        idempotencyKey = idempotencyKey,
+                        shiftId = shiftId,
+                        actualCashCentavos = actualCashCentavos,
+                        closingRemarks = closingRemarks,
+                        approvedBy = approvedBy,
+                    ),
+                )
+
+                val exporter = shiftReportExporter
+                val finalSummary = if (exporter != null) {
+                    val (storeName, storeAddress) = repository.storeNameAndAddress()
+                    val defaultFileName = com.aesprt.marisuki.feature.shift.EndShiftReportPdfExporter.buildDeterministicFileName(closeResult.summary)
+                    val exported = runCatching {
+                        exporter.generateAndSave(
+                            summary = closeResult.summary,
+                            storeName = storeName,
+                            storeAddress = storeAddress,
+                            isRegeneration = false,
+                        )
+                    }.getOrNull()
+                    if (exported != null) {
+                        repository.saveShiftReportMetadata(
+                            shiftId = shiftId,
+                            fileName = exported.fileName,
+                            fileUri = exported.fileUri,
+                            status = exported.reportStatus,
+                        )
+                    } else {
+                        repository.saveShiftReportMetadata(
+                            shiftId = shiftId,
+                            fileName = defaultFileName,
+                            fileUri = null,
+                            status = com.aesprt.marisuki.domain.model.ShiftReportStatus.FAILED,
+                        )
+                    }
+                    repository.getShiftSummary(shiftId) ?: closeResult.summary
+                } else {
+                    closeResult.summary
+                }
+
+                _cart.value = emptyList()
+                _lastClosedShiftReport.value = finalSummary
+                _events.send(PosEvent.ShiftClosed(finalSummary))
+                onCompleted(finalSummary)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _shiftError.value = error.message ?: "Unable to close shift."
+                _events.send(PosEvent.Error(error.toMessage()))
+            } finally {
+                _isWorking.value = false
+            }
+        }
+    }
+
+    fun regenerateShiftReportPdf(
+        shiftId: String,
+        onCompleted: (com.aesprt.marisuki.domain.model.ShiftSummary?) -> Unit = {},
+    ) {
+        viewModelScope.launch {
+            if (_isWorking.value) return@launch
+            _isWorking.value = true
+            _shiftError.value = null
+            try {
+                val summary = repository.getShiftSummary(shiftId) ?: return@launch
+                val exporter = shiftReportExporter ?: return@launch
+                val (storeName, storeAddress) = repository.storeNameAndAddress()
+                val exported = exporter.generateAndSave(
+                    summary = summary,
+                    storeName = storeName,
+                    storeAddress = storeAddress,
+                    isRegeneration = true,
+                )
+                repository.saveShiftReportMetadata(
+                    shiftId = shiftId,
+                    fileName = exported.fileName,
+                    fileUri = exported.fileUri,
+                    status = exported.reportStatus,
+                )
+                val updated = repository.getShiftSummary(shiftId)
+                if (_lastClosedShiftReport.value?.shiftId == shiftId && updated != null) {
+                    _lastClosedShiftReport.value = updated
+                }
+                onCompleted(updated)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                _shiftError.value = error.message ?: "Unable to regenerate End Shift PDF report."
+                _events.send(PosEvent.Error(error.toMessage()))
+            } finally {
+                _isWorking.value = false
+            }
+        }
+    }
+
+    fun buildOpenShiftPdfIntent(summary: com.aesprt.marisuki.domain.model.ShiftSummary): android.content.Intent? =
+        shiftReportExporter?.buildOpenIntent(summary)
+
+    fun buildShareShiftPdfIntent(summary: com.aesprt.marisuki.domain.model.ShiftSummary): android.content.Intent? =
+        shiftReportExporter?.buildShareIntent(summary)
 
     private fun runOperation(success: PosEvent, action: suspend () -> Any?) {
         viewModelScope.launch {
@@ -563,8 +795,11 @@ class PosViewModel(
         PosError.InsufficientStock -> PosMessage.OUT_OF_STOCK
         PosError.CustomerRequired -> PosMessage.CUSTOMER_REQUIRED
         PosError.ProductNotFound -> PosMessage.PRODUCT_UNAVAILABLE
-        PosError.PaymentInvalid -> PosMessage.PAYMENT_INVALID
-        PosError.DuplicateName -> PosMessage.DUPLICATE
+        PosError.PaymentInvalid, PosError.ShiftVarianceReasonRequired -> PosMessage.PAYMENT_INVALID
+        PosError.DuplicateName, PosError.ShiftAlreadyOpen, PosError.ShiftAlreadyClosed -> PosMessage.DUPLICATE
+        PosError.ShiftRequired -> PosMessage.SHIFT_REQUIRED
+        PosError.PreviousShiftUnclosed -> PosMessage.PREVIOUS_SHIFT_OPEN
+        PosError.ShiftApprovalRequired -> PosMessage.ACCESS_DENIED
         is AuthException -> PosMessage.ACCESS_DENIED
         else -> PosMessage.GENERAL
     }
@@ -603,5 +838,8 @@ class PosViewModel(
             NumberFormat.getCurrencyInstance(Locale.forLanguageTag("en-PH")).format(BigDecimal.valueOf(centavos, 2))
 
         fun formatQuantity(milliUnits: Long): String = BigDecimal.valueOf(milliUnits, 3).stripTrailingZeros().toPlainString()
+
+        /** Plain editable amount (e.g. "1234.50") that [parseCentavos] reads back exactly. */
+        fun formatAmountInput(centavos: Long): String = BigDecimal.valueOf(centavos, 2).toPlainString()
     }
 }

@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.PersonAdd
@@ -34,7 +35,6 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -68,7 +68,10 @@ import com.aesprt.marisuki.data.local.entity.CustomerLedgerEntryEntity
 import com.aesprt.marisuki.domain.auth.PosPermission
 import com.aesprt.marisuki.domain.model.PaymentMethod
 import com.aesprt.marisuki.feature.pos.PosViewModel
+import com.aesprt.marisuki.ui.components.PosEmptyState
+import com.aesprt.marisuki.ui.components.ToolChip
 import com.aesprt.marisuki.ui.theme.PosLayout
+import com.aesprt.marisuki.ui.theme.PosRadius
 import com.aesprt.marisuki.ui.theme.PosSpacing
 
 @Composable
@@ -123,67 +126,54 @@ fun CreditScreen(viewModel: PosViewModel) {
                 Spacer(Modifier.height(PosSpacing.sm))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
+                    shape = PosRadius.card,
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primary),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Text(
                                 stringResource(R.string.outstanding_total),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onPrimary
+                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
                             )
                             Text(
                                 PosViewModel.formatPeso(totalDebt),
-                                style = MaterialTheme.typography.headlineMedium,
+                                style = MaterialTheme.typography.headlineMedium.copy(fontFeatureSettings = "tnum"),
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimary
                             )
-                            if (storeCredit > 0) Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            if (storeCredit > 0) Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     stringResource(R.string.store_credit_total),
                                     style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onPrimary
+                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f)
                                 )
                                 Text(
                                     PosViewModel.formatPeso(storeCredit),
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         }
-                        Surface(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .14f), shape = RoundedCornerShape(16.dp)) {
-                            Icon(Icons.Filled.Payments, null, Modifier.padding(14.dp).size(28.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                        Surface(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = .14f), shape = RoundedCornerShape(12.dp)) {
+                            Icon(Icons.Filled.Payments, null, Modifier.padding(12.dp).size(26.dp), tint = MaterialTheme.colorScheme.onPrimary)
                         }
-
                     }
                 }
                 Spacer(Modifier.height(PosSpacing.sm))
                 if (customers.isEmpty()) {
-                    Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                modifier = Modifier.size(64.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(Icons.Filled.Person, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
-                                }
-                            }
-                            Text(stringResource(R.string.no_customers), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
+                    PosEmptyState(
+                        icon = Icons.Filled.Person,
+                        title = stringResource(R.string.no_customers),
+                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                    )
                 } else if (expanded) {
                     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(PosLayout.tabletPaneGap)) {
                         LazyColumn(
@@ -223,7 +213,7 @@ fun CreditScreen(viewModel: PosViewModel) {
     if (canViewBalances) historyTarget?.let { id ->
         customers.firstOrNull { it.id == id }?.let { customer ->
             CreditDialogFrame(
-                title = stringResource(R.string.utang_history_title), icon = Icons.Filled.ReceiptLong,
+                title = stringResource(R.string.utang_history_title), icon = Icons.AutoMirrored.Filled.ReceiptLong,
                 onDismiss = { historyTarget = null }, scrollable = false,
                 actions = { TextButton(onClick = { historyTarget = null }) { Text(stringResource(R.string.close)) } },
             ) {
@@ -260,33 +250,51 @@ internal fun CustomerRow(
     val colors = MaterialTheme.colorScheme
     Card(
         modifier = Modifier.fillMaxWidth().then(if (onSelect != null) Modifier.clickable(onClick = onSelect) else Modifier),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = colors.surface),
-        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant.copy(alpha = .7f)),
+        shape = PosRadius.card,
+        colors = CardDefaults.cardColors(containerColor = if (selected) colors.primaryContainer.copy(alpha = 0.25f) else colors.surface),
+        border = BorderStroke(1.dp, if (selected) colors.primary else colors.outlineVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Surface(shape = RoundedCornerShape(14.dp), color = colors.primaryContainer) {
-                    Icon(Icons.Filled.Person, null, Modifier.padding(12.dp).size(22.dp), tint = colors.onPrimaryContainer)
+                Surface(shape = RoundedCornerShape(10.dp), color = colors.primaryContainer) {
+                    Icon(Icons.Filled.Person, null, Modifier.padding(10.dp).size(20.dp), tint = colors.onPrimaryContainer)
                 }
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(customer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(customer.phone ?: stringResource(R.string.credit_view_history), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
                 }
                 if (onSelect != null) Icon(Icons.Filled.ChevronRight, null, tint = colors.onSurfaceVariant)
             }
-            Surface(color = if (customer.balanceCentavos > 0) colors.errorContainer.copy(alpha = .3f) else colors.primaryContainer.copy(alpha = .35f), shape = RoundedCornerShape(14.dp)) {
-                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(stringResource(if (customer.balanceCentavos > 0) R.string.outstanding_balance else if (customer.balanceCentavos < 0) R.string.store_credit_balance else R.string.no_outstanding_balance),
-                        style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
-                    Text(PosViewModel.formatPeso(kotlin.math.abs(customer.balanceCentavos)),
-                        style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold,
-                        color = if (customer.balanceCentavos > 0) colors.error else colors.primary)
+            Surface(
+                color = if (customer.balanceCentavos > 0) colors.errorContainer.copy(alpha = .35f) else colors.surfaceContainerLow,
+                shape = PosRadius.input,
+                border = BorderStroke(1.dp, if (customer.balanceCentavos > 0) colors.error.copy(alpha = 0.2f) else colors.outlineVariant),
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        stringResource(if (customer.balanceCentavos > 0) R.string.outstanding_balance else if (customer.balanceCentavos < 0) R.string.store_credit_balance else R.string.no_outstanding_balance),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.onSurfaceVariant,
+                    )
+                    Text(
+                        PosViewModel.formatPeso(kotlin.math.abs(customer.balanceCentavos)),
+                        style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"),
+                        fontWeight = FontWeight.Bold,
+                        color = if (customer.balanceCentavos > 0) colors.error else colors.primary,
+                    )
                 }
             }
-            if (showPayment && customer.balanceCentavos > 0) Button(onClick = onPayment,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
-                Icon(Icons.Filled.Payments, null, Modifier.size(20.dp))
+            if (showPayment && customer.balanceCentavos > 0) Button(
+                onClick = onPayment,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                shape = PosRadius.button,
+            ) {
+                Icon(Icons.Filled.Payments, null, Modifier.size(18.dp))
                 Text(stringResource(R.string.record_payment), Modifier.padding(start = 8.dp))
             }
         }
@@ -305,46 +313,47 @@ private fun CustomerDetailsPane(
     val entries by ledgerFlow.collectAsStateWithLifecycle(initialValue = emptyList())
     Card(
         modifier,
-        shape = RoundedCornerShape(20.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxSize().padding(18.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Surface(
-                    shape = CircleShape,
+                    shape = RoundedCornerShape(12.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
-                    modifier = Modifier.size(52.dp)
+                    modifier = Modifier.size(46.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(28.dp))
+                        Icon(Icons.Filled.Person, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(24.dp))
                     }
                 }
                 Column(Modifier.weight(1f)) {
-                    Text(customer.name, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(customer.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     customer.phone?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium) }
                 }
             }
 
             Surface(
-                shape = RoundedCornerShape(14.dp),
+                shape = PosRadius.input,
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                    Modifier.fillMaxWidth().padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Column {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Text(
                             stringResource(if (customer.balanceCentavos > 0) R.string.outstanding_balance else if (customer.balanceCentavos < 0) R.string.store_credit_balance else R.string.no_outstanding_balance),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.labelLarge,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         Text(
                             PosViewModel.formatPeso(kotlin.math.abs(customer.balanceCentavos)),
-                            style = MaterialTheme.typography.headlineSmall,
+                            style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"),
                             fontWeight = FontWeight.Bold,
                             color = if (customer.balanceCentavos > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                         )
@@ -352,7 +361,7 @@ private fun CustomerDetailsPane(
                     if (showPayment && customer.balanceCentavos > 0) {
                         Button(
                             onClick = onPayment,
-                            shape = RoundedCornerShape(10.dp),
+                            shape = PosRadius.button,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)
                         ) {
                             Text(stringResource(R.string.record_payment), fontWeight = FontWeight.SemiBold)
@@ -364,17 +373,11 @@ private fun CustomerDetailsPane(
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Text(stringResource(R.string.utang_history_title), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             if (entries.isEmpty()) {
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(
-                            Icons.Filled.ReceiptLong,
-                            contentDescription = null,
-                            modifier = Modifier.size(40.dp),
-                            tint = MaterialTheme.colorScheme.primary,
-                        )
-                        Text(stringResource(R.string.utang_history_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                PosEmptyState(
+                    icon = Icons.AutoMirrored.Filled.ReceiptLong,
+                    title = stringResource(R.string.utang_history_empty),
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
             } else {
                 LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(entries, key = { it.id }) { entry -> CustomerLedgerRow(entry) }
@@ -391,8 +394,9 @@ private fun CustomerLedgerRow(entry: CustomerLedgerEntryEntity) {
             .withZone(ZoneId.systemDefault()).format(Instant.ofEpochMilli(entry.occurredAtMillis))
     }
     Surface(
-        shape = RoundedCornerShape(16.dp),
+        shape = PosRadius.input,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -416,7 +420,7 @@ private fun CustomerLedgerRow(entry: CustomerLedgerEntryEntity) {
                     entry.deltaCentavos < 0 -> "−"
                     else -> ""
                 }) + PosViewModel.formatPeso(kotlin.math.abs(entry.deltaCentavos)),
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.titleMedium.copy(fontFeatureSettings = "tnum"),
                 fontWeight = FontWeight.Bold,
                 color = if (entry.deltaCentavos > 0) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
             )
@@ -432,13 +436,13 @@ private fun AddCustomerDialog(onDismiss: () -> Unit, onSave: (String, String?) -
         actions = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
             Button(onClick = { onSave(name.trim(), phone.trim().ifBlank { null }) }, enabled = name.isNotBlank(),
-                modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) { Text(stringResource(R.string.save)) }
+                modifier = Modifier.heightIn(min = 48.dp), shape = PosRadius.button) { Text(stringResource(R.string.save)) }
         }) {
         Text(stringResource(R.string.credit_customer_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedTextField(name, { name = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.customer_name)) },
-            leadingIcon = { Icon(Icons.Filled.Person, null) }, singleLine = true, shape = RoundedCornerShape(14.dp))
+            leadingIcon = { Icon(Icons.Filled.Person, null) }, singleLine = true, shape = PosRadius.input)
         OutlinedTextField(phone, { phone = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.phone_optional)) },
-            leadingIcon = { Icon(Icons.Filled.Phone, null) }, singleLine = true, shape = RoundedCornerShape(14.dp),
+            leadingIcon = { Icon(Icons.Filled.Phone, null) }, singleLine = true, shape = PosRadius.input,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone))
     }
 }
@@ -455,42 +459,51 @@ private fun CustomerPaymentDialog(customer: CustomerBalance, onDismiss: () -> Un
         actions = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
             Button(onClick = { PaymentMethod.entries.firstOrNull { it.name == method }?.let { onSave(amount, it, idempotencyKey) } },
-                enabled = valid, modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp)) {
+                enabled = valid, modifier = Modifier.heightIn(min = 48.dp), shape = PosRadius.button) {
                 Text(stringResource(R.string.save))
             }
         }) {
-        Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .35f)) {
-            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Surface(
+            shape = PosRadius.card,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(customer.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(stringResource(R.string.outstanding_balance), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(PosViewModel.formatPeso(customer.balanceCentavos), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
+                Text(PosViewModel.formatPeso(customer.balanceCentavos), style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error)
             }
         }
         OutlinedTextField(amount, { amount = it }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.payment_amount)) },
-            prefix = { Text("₱ ") }, singleLine = true, shape = RoundedCornerShape(14.dp),
+            prefix = { Text("₱ ") }, singleLine = true, shape = PosRadius.input,
             isError = parsed != null && parsed > customer.balanceCentavos,
             supportingText = if (parsed != null && parsed > customer.balanceCentavos) { { Text(stringResource(R.string.credit_payment_too_large)) } } else null,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
         Text(stringResource(R.string.payment_method), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             PaymentMethod.entries.forEach { item ->
                 val selected = method == item.name
-                FilterChip(selected = selected, onClick = { method = item.name },
-                    label = { Text(stringResource(when (item) {
-                        PaymentMethod.CASH -> R.string.method_cash
-                        PaymentMethod.GCASH -> R.string.method_gcash
-                        PaymentMethod.MAYA -> R.string.method_maya
-                    })) },
-                    leadingIcon = if (selected) { { Icon(Icons.Filled.Check, null, Modifier.size(18.dp)) } } else null,
-                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimary, selectedLeadingIconColor = MaterialTheme.colorScheme.onPrimary),
-                    modifier = Modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp))
+                ToolChip(
+                    selected = selected,
+                    onClick = { method = item.name },
+                    label = {
+                        Text(
+                            stringResource(
+                                when (item) {
+                                    PaymentMethod.CASH -> R.string.method_cash
+                                    PaymentMethod.GCASH -> R.string.method_gcash
+                                    PaymentMethod.MAYA -> R.string.method_maya
+                                },
+                            ),
+                        )
+                    },
+                )
             }
         }
-        if (valid) Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(14.dp)) {
-            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (valid) Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = PosRadius.input) {
+            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(stringResource(R.string.credit_remaining_after_payment), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(PosViewModel.formatPeso(customer.balanceCentavos - parsed), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(PosViewModel.formatPeso(customer.balanceCentavos - parsed), style = MaterialTheme.typography.titleLarge.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.SemiBold)
             }
         }
     }

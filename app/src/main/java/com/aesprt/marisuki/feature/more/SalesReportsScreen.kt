@@ -86,6 +86,7 @@ import com.aesprt.marisuki.data.local.dao.LabelAmount
 import com.aesprt.marisuki.domain.auth.PosPermission
 import com.aesprt.marisuki.feature.pos.PosViewModel
 import com.aesprt.marisuki.ui.theme.PosLayout
+import com.aesprt.marisuki.ui.theme.PosRadius
 import com.aesprt.marisuki.ui.theme.PosSpacing
 
 private enum class ReportPeriod { TODAY, YESTERDAY, WEEK, MONTH, CUSTOM }
@@ -219,6 +220,7 @@ fun SalesReportsScreen(viewModel: PosViewModel) {
                                 title = stringResource(metric.title),
                                 value = PosViewModel.formatPeso(metric.amountCentavos),
                                 subtitle = stringResource(metric.subtitle),
+                                isNegative = metric.amountCentavos < 0,
                                 modifier = Modifier.weight(1f).widthIn(min = 136.dp),
                             )
                         }
@@ -239,7 +241,7 @@ fun SalesReportsScreen(viewModel: PosViewModel) {
                     Button(
                         onClick = { reportToExport = report; exportLauncher.launch("marisuki-report-${fromDate}.csv") },
                         modifier = Modifier.fillMaxWidth().heightIn(min = PosLayout.minimumTouchTarget),
-                        shape = RoundedCornerShape(14.dp),
+                        shape = PosRadius.button,
                         contentPadding = PaddingValues(horizontal = PosSpacing.section, vertical = PosSpacing.sm),
                     ) {
                         Icon(Icons.Filled.FileDownload, contentDescription = null)
@@ -353,15 +355,21 @@ private fun MetricCard(
     value: String,
     subtitle: String,
     highlighted: Boolean = false,
+    isNegative: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     ReportCard(
         modifier,
         containerColor = if (highlighted) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
     ) {
+        val valueColor = when {
+            highlighted -> MaterialTheme.colorScheme.onPrimary
+            isNegative -> MaterialTheme.colorScheme.error
+            else -> MaterialTheme.colorScheme.primary
+        }
         Column(Modifier.fillMaxWidth().padding(PosSpacing.screen), verticalArrangement = Arrangement.spacedBy(PosSpacing.xs)) {
             Text(title, style = MaterialTheme.typography.labelLarge, color = if (highlighted) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f) else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(value, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = if (highlighted) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(value, style = MaterialTheme.typography.headlineSmall.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold, color = valueColor, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = if (highlighted) MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.78f) else MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
@@ -559,7 +567,7 @@ internal fun ChannelListCard(report: SalesReport, modifier: Modifier = Modifier)
                 Column(verticalArrangement = Arrangement.spacedBy(PosSpacing.xs)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(row.salesChannel.replace('_', ' '), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                            Text(stringResource(saleChannelLabel(row.salesChannel)), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                             Text(pluralStringResource(R.plurals.report_sales_count, row.saleCount, row.saleCount), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         Text(PosViewModel.formatPeso(row.amountCentavos), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
@@ -659,9 +667,9 @@ private fun ReportCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
+        shape = PosRadius.card,
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .65f)),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp, pressedElevation = 0.dp),
         content = { content() },
     )

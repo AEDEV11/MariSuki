@@ -357,6 +357,157 @@ class PosRepositoryInstrumentedTest {
         assertEquals(2_500L, database.posDao().observeRefundTotal("STORE_CREDIT", 0, Long.MAX_VALUE).first())
     }
 
+    @Test
+    fun cashierShiftLifecycleEnforcesPreviousDayGateAndExactDrawerReconciliation() = runBlocking {
+        var nowMillis = 1_800_000_000_000L
+        val cashierRepo = PosRepository(
+            database,
+            database.posDao(),
+            PosAccessControl { AuthenticatedActor("cashier-01", AccountRole.CASHIER, 0) },
+        ) { nowMillis }
+
+        val productId = createCannedProduct(stockPieces = 50)
+        val can = repository.productUnits(productId).single { it.baseQuantityMilliUnits == PosRepository.SCALE }
+
+        // 1. Cashier cannot checkout before starting a shift
+        val noShiftFailure = runCatching {
+            cashierRepo.checkout(
+                CheckoutCommand(
+                    idempotencyKey = "no-shift-sale",
+                    lines = listOf(CartLineInput(productId, can.id, PosRepository.SCALE)),
+                    tenders = listOf(TenderInput(PaymentMethod.CASH, 2_500)),
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(noShiftFailure is PosError.ShiftRequired)
+
+        // 2. Start shift on Day 1 with ₱2,000.00 opening cash
+        val started = cashierRepo.startShift(
+            com.aesprt.marisuki.domain.model.StartShiftCommand(
+                idempotencyKey = "shift-start-day1",
+                openingCashCentavos = 200_000L,
+                terminalId = "POS-01",
+            ),
+        )
+        assertEquals("OPEN", started.shiftStatus.name)
+        assertEquals(200_000L, started.openingCashCentavos)
+
+        // Duplicate open shift is rejected
+        val dupShift = runCatching {
+            cashierRepo.startShift(
+                com.aesprt.marisuki.domain.model.StartShiftCommand(
+                    idempotencyKey = "shift-start-dup",
+                    openingCashCentavos = 100_000L,
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(dupShift is PosError.ShiftAlreadyOpen)
+
+        // 3. Process Cash + GCash (with required reference number) + MIXED channel sales, plus Cash In/Out
+        val cashSale = cashierRepo.checkout(
+            CheckoutCommand(
+                idempotencyKey = "day1-cash-sale",
+                lines = listOf(CartLineInput(productId, can.id, 2 * PosRepository.SCALE)),
+                tenders = listOf(TenderInput(PaymentMethod.CASH, 5_000L)),
+                salesChannel = SaleChannel.MIXED,
+            ),
+        )
+        assertEquals("MIXED", database.posDao().sale(cashSale.saleId)?.salesChannel)
+        assertEquals(started.shiftId, database.posDao().sale(cashSale.saleId)?.shiftId)
+
+        val gcashWithoutRef = runCatching {
+            cashierRepo.checkout(
+                CheckoutCommand(
+                    idempotencyKey = "day1-gcash-noref",
+                    lines = listOf(CartLineInput(productId, can.id, PosRepository.SCALE)),
+                    tenders = listOf(TenderInput(PaymentMethod.GCASH, 2_500L, referenceNumber = null)),
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(gcashWithoutRef is PosError.PaymentInvalid)
+
+        cashierRepo.checkout(
+            CheckoutCommand(
+                idempotencyKey = "day1-gcash-sale",
+                lines = listOf(CartLineInput(productId, can.id, PosRepository.SCALE)),
+                tenders = listOf(TenderInput(PaymentMethod.GCASH, 2_500L, referenceNumber = "GC-998877")),
+            ),
+        )
+
+        cashierRepo.recordShiftCashMovement(
+            idempotencyKey = "move-in-1",
+            shiftId = started.shiftId,
+            movementType = com.aesprt.marisuki.domain.model.CashMovementType.CASH_IN,
+            amountCentavos = 50_000L,
+            reason = "Added change fund",
+        )
+        cashierRepo.recordShiftCashMovement(
+            idempotencyKey = "move-out-1",
+            shiftId = started.shiftId,
+            movementType = com.aesprt.marisuki.domain.model.CashMovementType.CASH_OUT,
+            amountCentavos = 20_000L,
+            reason = "Safe drop",
+        )
+
+        // Expected Cash = 200_000 (opening) + 5_000 (cash sale) + 50_000 (cash in) - 20_000 (cash out) = 235_000
+        val activeGate = cashierRepo.evaluateShiftGate()
+        assertTrue(activeGate is com.aesprt.marisuki.domain.model.ShiftGateState.ActiveShift)
+        val activeSummary = (activeGate as com.aesprt.marisuki.domain.model.ShiftGateState.ActiveShift).summary
+        assertEquals(235_000L, activeSummary.expectedCashCentavos)
+        assertEquals(2_500L, activeSummary.gcashPaymentsCentavos)
+
+        // 4. Advance clock by 2 days without closing shift -> PreviousShiftOpen gate & checkout blocked
+        nowMillis += 2L * 24L * 60L * 60L * 1_000L
+        val nextDayGate = cashierRepo.evaluateShiftGate()
+        assertTrue(nextDayGate is com.aesprt.marisuki.domain.model.ShiftGateState.PreviousShiftOpen)
+
+        val blockedSale = runCatching {
+            cashierRepo.checkout(
+                CheckoutCommand(
+                    idempotencyKey = "day2-blocked-sale",
+                    lines = listOf(CartLineInput(productId, can.id, PosRepository.SCALE)),
+                    tenders = listOf(TenderInput(PaymentMethod.CASH, 2_500L)),
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(blockedSale is PosError.PreviousShiftUnclosed)
+
+        // 5. Closing with a shortage requires remarks
+        val missingRemarks = runCatching {
+            cashierRepo.closeShift(
+                com.aesprt.marisuki.domain.model.CloseShiftCommand(
+                    idempotencyKey = "close-day1-no-remarks",
+                    shiftId = started.shiftId,
+                    actualCashCentavos = 230_000L,
+                    closingRemarks = "",
+                ),
+            )
+        }.exceptionOrNull()
+        assertTrue(missingRemarks is PosError.ShiftVarianceReasonRequired)
+
+        // 6. Close previous shift with explanation -> SHORT (-5_000 centavos)
+        val closeResult = cashierRepo.closeShift(
+            com.aesprt.marisuki.domain.model.CloseShiftCommand(
+                idempotencyKey = "close-day1",
+                shiftId = started.shiftId,
+                actualCashCentavos = 230_000L,
+                closingRemarks = "Short ₱50 change error",
+            ),
+        )
+        assertFalse(closeResult.wasAlreadyClosed)
+        assertEquals(com.aesprt.marisuki.domain.model.ReconciliationStatus.SHORT, closeResult.summary.reconciliationStatus)
+        assertEquals(-5_000L, closeResult.summary.varianceCentavos)
+
+        // 7. Now cashier can start a new shift on the current business date
+        val day2Shift = cashierRepo.startShift(
+            com.aesprt.marisuki.domain.model.StartShiftCommand(
+                idempotencyKey = "shift-start-day2",
+                openingCashCentavos = 150_000L,
+            ),
+        )
+        assertEquals("OPEN", day2Shift.shiftStatus.name)
+    }
+
     private suspend fun createCannedProduct(stockPieces: Long): String = repository.createProduct(
         NewProduct(
             name = "Canned goods",

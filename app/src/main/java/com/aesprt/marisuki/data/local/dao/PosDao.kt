@@ -446,4 +446,81 @@ interface PosDao {
     @Query("SELECT COUNT(*) FROM products WHERE active = 1 AND id IN (SELECT productId FROM inventory_balances WHERE onHandMilliUnits <= products.minimumStockMilliUnits)")
     fun observeLowStockCount(): Flow<Int>
 
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertCashierShift(shift: CashierShiftEntity)
+
+    @Update
+    suspend fun updateCashierShift(shift: CashierShiftEntity)
+
+    @Query("SELECT * FROM cashier_shifts WHERE shiftId = :shiftId LIMIT 1")
+    suspend fun cashierShift(shiftId: String): CashierShiftEntity?
+
+    @Query("SELECT * FROM cashier_shifts WHERE idempotencyKey = :idempotencyKey LIMIT 1")
+    suspend fun cashierShiftByKey(idempotencyKey: String): CashierShiftEntity?
+
+    @Query("SELECT * FROM cashier_shifts WHERE shiftId = :shiftId LIMIT 1")
+    fun observeCashierShift(shiftId: String): Flow<CashierShiftEntity?>
+
+    @Query("SELECT * FROM cashier_shifts WHERE cashierId = :cashierId AND shiftStatus = 'OPEN' ORDER BY startedAt ASC LIMIT 1")
+    suspend fun openShiftForCashier(cashierId: String): CashierShiftEntity?
+
+    @Query("SELECT * FROM cashier_shifts WHERE cashierId = :cashierId AND shiftStatus = 'OPEN' ORDER BY startedAt ASC LIMIT 1")
+    fun observeOpenShiftForCashier(cashierId: String): Flow<CashierShiftEntity?>
+
+    @Query("SELECT * FROM cashier_shifts WHERE terminalId = :terminalId AND shiftStatus = 'OPEN' ORDER BY startedAt ASC LIMIT 1")
+    suspend fun openShiftForTerminal(terminalId: String): CashierShiftEntity?
+
+    @Query("SELECT * FROM cashier_shifts WHERE shiftStatus = 'CLOSED' ORDER BY COALESCE(endedAt, startedAt) DESC")
+    fun observeClosedShifts(): Flow<List<CashierShiftEntity>>
+
+    @Query("SELECT * FROM cashier_shifts WHERE shiftStatus = 'CLOSED' AND cashierId = :cashierId ORDER BY COALESCE(endedAt, startedAt) DESC")
+    fun observeClosedShiftsForCashier(cashierId: String): Flow<List<CashierShiftEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.ABORT)
+    suspend fun insertShiftCashMovement(movement: ShiftCashMovementEntity)
+
+    @Query("SELECT * FROM shift_cash_movements WHERE idempotencyKey = :idempotencyKey LIMIT 1")
+    suspend fun shiftCashMovementByKey(idempotencyKey: String): ShiftCashMovementEntity?
+
+    @Query("SELECT * FROM shift_cash_movements WHERE shiftId = :shiftId ORDER BY createdAt ASC")
+    suspend fun shiftCashMovements(shiftId: String): List<ShiftCashMovementEntity>
+
+    @Query("SELECT * FROM shift_cash_movements WHERE shiftId = :shiftId ORDER BY createdAt ASC")
+    fun observeShiftCashMovements(shiftId: String): Flow<List<ShiftCashMovementEntity>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertShiftReport(report: ShiftReportEntity)
+
+    @Query("SELECT * FROM shift_reports WHERE shiftId = :shiftId LIMIT 1")
+    suspend fun shiftReportForShift(shiftId: String): ShiftReportEntity?
+
+    @Query("SELECT * FROM shift_reports ORDER BY generatedAt DESC")
+    fun observeShiftReports(): Flow<List<ShiftReportEntity>>
+
+    @Query("SELECT COUNT(*) FROM sales WHERE shiftId = :shiftId AND status = 'COMPLETED'")
+    suspend fun shiftCompletedSaleCount(shiftId: String): Int
+
+    @Query("SELECT COALESCE(SUM(totalCentavos), 0) FROM sales WHERE shiftId = :shiftId AND status = 'COMPLETED'")
+    suspend fun shiftGrossSalesCentavos(shiftId: String): Long
+
+    @Query("SELECT COALESCE(SUM(p.amountAppliedCentavos), 0) FROM payments p INNER JOIN sales s ON s.id = p.saleId WHERE s.shiftId = :shiftId AND s.status = 'COMPLETED' AND p.method = :method")
+    suspend fun shiftPaymentTotalByMethod(shiftId: String, method: String): Long
+
+    @Query("SELECT COALESCE(SUM(s.totalCentavos - COALESCE(paid.paidCentavos, 0)), 0) FROM sales s LEFT JOIN (SELECT saleId, SUM(amountAppliedCentavos) AS paidCentavos FROM payments GROUP BY saleId) paid ON paid.saleId = s.id WHERE s.shiftId = :shiftId AND s.status = 'COMPLETED' AND s.totalCentavos > COALESCE(paid.paidCentavos, 0)")
+    suspend fun shiftCreditSalesCentavos(shiftId: String): Long
+
+    @Query("SELECT COALESCE(SUM(r.refundedCentavos), 0) FROM refunds r LEFT JOIN sales s ON s.id = r.saleId WHERE r.shiftId = :shiftId OR (r.shiftId IS NULL AND s.shiftId = :shiftId)")
+    suspend fun shiftRefundTotalCentavos(shiftId: String): Long
+
+    @Query("SELECT COALESCE(SUM(r.refundedCentavos), 0) FROM refunds r LEFT JOIN sales s ON s.id = r.saleId WHERE (r.shiftId = :shiftId OR (r.shiftId IS NULL AND s.shiftId = :shiftId)) AND r.refundMethod = :method")
+    suspend fun shiftRefundTotalByMethod(shiftId: String, method: String): Long
+
+    @Query("SELECT COUNT(*) FROM sales")
+    fun observeSalesCountPulse(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM refunds")
+    fun observeRefundsCountPulse(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM shift_cash_movements")
+    fun observeShiftCashMovementsCountPulse(): Flow<Int>
 }

@@ -29,6 +29,13 @@
     <string name="sale_channel_label">Sale type</string>
     <string name="sale_channel_tingi">Tingi</string>
     <string name="sale_channel_wholesale">Wholesale</string>
+    <string name="sale_channel_mixed">Tingi + Wholesale</string>
+    <string name="sale_channel_multi_hint">Select both when the customer buys tingi and wholesale items.</string>
+    <string name="reference_number">Reference no.</string>
+    <string name="reference_number_required">Reference number *</string>
+    <string name="reference_number_help_gcash">Required. Copy the reference number from the customer\'s GCash receipt.</string>
+    <string name="reference_number_help_maya">Required. Copy the reference number from the customer\'s Maya receipt.</string>
+    <string name="utang_amount">Utang amount</string>
     <string name="method_cash">Cash</string>
     <string name="method_gcash">GCash</string>
     <string name="method_maya">Maya</string>
@@ -536,4 +543,9 @@
     <string name="bulk_whole_only">Whole stock quantities only</string>
     <string name="bulk_fractions_allowed">Fractional stock quantities allowed</string>
     <string name="catalog_selling_unit_label">Selling unit</string>
+    <string name="receipt_preview_title">Receipt Preview</string>
+    <string name="receipt_preview_subtitle">Review the receipt details before settling this sale.</string>
+    <string name="checkout_print_and_complete">Print &amp; Complete Sale</string>
+    <string name="checkout_complete_without_print">Complete without Printing</string>
+    <string name="receipt_thank_you">Thank you! Salamat po.</string>
 </resources>

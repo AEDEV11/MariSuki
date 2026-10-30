@@ -165,6 +165,7 @@ private class ReceiptAdapter(
         add("TOTAL  ${PosViewModel.formatPeso(receipt.sale.totalCentavos)}")
         receipt.payments.forEach { payment ->
             add("${payment.method}  ${PosViewModel.formatPeso(payment.amountAppliedCentavos)}")
+            payment.referenceNumber?.let { add("Ref no.  $it") }
             if (payment.changeCentavos > 0) add("Change  ${PosViewModel.formatPeso(payment.changeCentavos)}")
         }
         val applied = receipt.payments.sumOf { it.amountAppliedCentavos }

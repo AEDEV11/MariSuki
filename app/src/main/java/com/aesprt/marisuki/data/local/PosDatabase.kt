@@ -35,8 +35,11 @@ import com.aesprt.marisuki.data.local.entity.*
         StaffPermissionEntity::class,
         AuthAttemptStateEntity::class,
         RestrictedActionAuditEntity::class,
+        CashierShiftEntity::class,
+        ShiftCashMovementEntity::class,
+        ShiftReportEntity::class,
     ],
-    version = 6,
+    version = 8,
     exportSchema = true,
 )
 abstract class PosDatabase : RoomDatabase() {
@@ -174,6 +177,110 @@ abstract class PosDatabase : RoomDatabase() {
         val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE `products` ADD COLUMN `imageFileName` TEXT")
+            }
+        }
+
+        /**
+         * v6 -> v7:
+         * - Adds optional GCash/Maya referenceNumber on payments.
+         */
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `payments` ADD COLUMN `referenceNumber` TEXT")
+            }
+        }
+
+        /**
+         * v7 -> v8:
+         * - Links sales and refunds to cashier_shifts via shiftId.
+         * - Creates cashier_shifts, shift_cash_movements, and shift_reports tables.
+         */
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `sales` ADD COLUMN `shiftId` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_sales_shiftId` ON `sales` (`shiftId`)")
+                db.execSQL("ALTER TABLE `refunds` ADD COLUMN `shiftId` TEXT")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_refunds_shiftId` ON `refunds` (`shiftId`)")
+
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `cashier_shifts` (
+                        `shiftId` TEXT NOT NULL,
+                        `idempotencyKey` TEXT NOT NULL,
+                        `cashierId` TEXT NOT NULL,
+                        `cashierNameSnapshot` TEXT NOT NULL,
+                        `terminalId` TEXT NOT NULL,
+                        `businessDate` TEXT NOT NULL,
+                        `startedAt` INTEGER NOT NULL,
+                        `endedAt` INTEGER,
+                        `openingCash` INTEGER NOT NULL,
+                        `expectedCash` INTEGER NOT NULL,
+                        `actualCash` INTEGER,
+                        `variance` INTEGER,
+                        `reconciliationStatus` TEXT NOT NULL,
+                        `shiftStatus` TEXT NOT NULL,
+                        `closingRemarks` TEXT,
+                        `approvedBy` TEXT,
+                        `transactionCount` INTEGER NOT NULL,
+                        `grossSalesCentavos` INTEGER NOT NULL,
+                        `discountsCentavos` INTEGER NOT NULL,
+                        `refundsCentavos` INTEGER NOT NULL,
+                        `netSalesCentavos` INTEGER NOT NULL,
+                        `cashPaymentsCentavos` INTEGER NOT NULL,
+                        `gcashPaymentsCentavos` INTEGER NOT NULL,
+                        `mayaPaymentsCentavos` INTEGER NOT NULL,
+                        `cardPaymentsCentavos` INTEGER NOT NULL,
+                        `creditSalesCentavos` INTEGER NOT NULL,
+                        `nonCashPaymentsCentavos` INTEGER NOT NULL,
+                        `cashInCentavos` INTEGER NOT NULL,
+                        `cashOutCentavos` INTEGER NOT NULL,
+                        `adjustmentsCentavos` INTEGER NOT NULL,
+                        `cashRefundsCentavos` INTEGER NOT NULL,
+                        `nonCashRefundsCentavos` INTEGER NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        `updatedAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`shiftId`)
+                    )""".trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_cashierId` ON `cashier_shifts` (`cashierId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_terminalId` ON `cashier_shifts` (`terminalId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_businessDate` ON `cashier_shifts` (`businessDate`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_shiftStatus` ON `cashier_shifts` (`shiftStatus`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_startedAt` ON `cashier_shifts` (`startedAt`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_cashier_shifts_reconciliationStatus` ON `cashier_shifts` (`reconciliationStatus`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_cashier_shifts_idempotencyKey` ON `cashier_shifts` (`idempotencyKey`)")
+
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `shift_cash_movements` (
+                        `movementId` TEXT NOT NULL,
+                        `idempotencyKey` TEXT NOT NULL,
+                        `shiftId` TEXT NOT NULL,
+                        `movementType` TEXT NOT NULL,
+                        `amount` INTEGER NOT NULL,
+                        `reason` TEXT NOT NULL,
+                        `createdBy` TEXT NOT NULL,
+                        `createdAt` INTEGER NOT NULL,
+                        PRIMARY KEY(`movementId`),
+                        FOREIGN KEY(`shiftId`) REFERENCES `cashier_shifts`(`shiftId`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )""".trimIndent(),
+                )
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shift_cash_movements_shiftId` ON `shift_cash_movements` (`shiftId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shift_cash_movements_createdAt` ON `shift_cash_movements` (`createdAt`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_shift_cash_movements_idempotencyKey` ON `shift_cash_movements` (`idempotencyKey`)")
+
+                db.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `shift_reports` (
+                        `reportId` TEXT NOT NULL,
+                        `shiftId` TEXT NOT NULL,
+                        `fileName` TEXT NOT NULL,
+                        `fileUri` TEXT,
+                        `generatedAt` INTEGER NOT NULL,
+                        `reportStatus` TEXT NOT NULL,
+                        PRIMARY KEY(`reportId`),
+                        FOREIGN KEY(`shiftId`) REFERENCES `cashier_shifts`(`shiftId`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )""".trimIndent(),
+                )
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_shift_reports_shiftId` ON `shift_reports` (`shiftId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_shift_reports_generatedAt` ON `shift_reports` (`generatedAt`)")
             }
         }
     }

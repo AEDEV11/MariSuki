@@ -39,7 +39,12 @@ internal fun CatalogChoiceField(
         ExposedDropdownMenuBox(expanded, { expanded = it }) {
             OutlinedTextField(value = if (unitLabels) catalogUnitLabel(value) else value, onValueChange = {}, readOnly = true,
                 modifier = Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable),
-                label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(14.dp),
+                label = { Text(label) }, singleLine = true, shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerLowest,
+                ),
                 trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) })
             ExposedDropdownMenu(expanded, { expanded = false }, modifier = Modifier.heightIn(max = 360.dp)) {
                 if (optional) DropdownMenuItem(text = { Text(stringResource(R.string.catalog_none)) }, onClick = { onSelected(""); expanded = false })
@@ -62,7 +67,7 @@ internal fun CatalogChoiceField(
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(stringResource(R.string.catalog_saved_hint), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 OutlinedTextField(newName, { newName = it; failed = false }, Modifier.fillMaxWidth(), label = { Text(label) },
-                    singleLine = true, enabled = !busy, shape = RoundedCornerShape(14.dp), isError = failed)
+                    singleLine = true, enabled = !busy, shape = RoundedCornerShape(12.dp), isError = failed)
                 if (failed) Text(stringResource(R.string.error_general), color = MaterialTheme.colorScheme.error)
             }
         }, confirmButton = {

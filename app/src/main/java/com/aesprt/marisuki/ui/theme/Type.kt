@@ -31,19 +31,35 @@ private fun interStyle(
 
 /** A readable POS type scale shared by Material 3 components and app screens. */
 val Typography = Typography(
-    displayLarge = interStyle(FontWeight.Normal, 57.sp, 64.sp),
-    displayMedium = interStyle(FontWeight.Normal, 45.sp, 52.sp),
-    displaySmall = interStyle(FontWeight.Normal, 36.sp, 44.sp),
-    headlineLarge = interStyle(FontWeight.SemiBold, 30.sp, 38.sp),
-    headlineMedium = interStyle(FontWeight.SemiBold, 26.sp, 34.sp),
-    headlineSmall = interStyle(FontWeight.SemiBold, 24.sp, 32.sp),
-    titleLarge = interStyle(FontWeight.SemiBold, 20.sp, 27.sp),
-    titleMedium = interStyle(FontWeight.Medium, 18.sp, 24.sp),
-    titleSmall = interStyle(FontWeight.Medium, 16.sp, 22.sp),
-    bodyLarge = interStyle(FontWeight.Normal, 16.sp, 24.sp),
+    displayLarge = interStyle(FontWeight.Bold, 48.sp, 56.sp),
+    displayMedium = interStyle(FontWeight.Bold, 40.sp, 48.sp),
+    displaySmall = interStyle(FontWeight.Bold, 34.sp, 42.sp),
+    headlineLarge = interStyle(FontWeight.Bold, 28.sp, 36.sp),
+    headlineMedium = interStyle(FontWeight.Bold, 24.sp, 32.sp),
+    headlineSmall = interStyle(FontWeight.SemiBold, 22.sp, 28.sp),
+    titleLarge = interStyle(FontWeight.SemiBold, 18.sp, 24.sp),
+    titleMedium = interStyle(FontWeight.SemiBold, 16.sp, 22.sp),
+    titleSmall = interStyle(FontWeight.Medium, 14.sp, 20.sp),
+    bodyLarge = interStyle(FontWeight.Normal, 15.sp, 22.sp),
     bodyMedium = interStyle(FontWeight.Normal, 14.sp, 20.sp),
-    bodySmall = interStyle(FontWeight.Normal, 13.sp, 18.sp),
-    labelLarge = interStyle(FontWeight.SemiBold, 16.sp, 20.sp),
-    labelMedium = interStyle(FontWeight.Medium, 14.sp, 18.sp),
-    labelSmall = interStyle(FontWeight.Medium, 12.sp, 16.sp),
+    bodySmall = interStyle(FontWeight.Normal, 12.sp, 18.sp),
+    labelLarge = interStyle(FontWeight.SemiBold, 14.sp, 20.sp),
+    labelMedium = interStyle(FontWeight.Medium, 12.sp, 16.sp),
+    labelSmall = interStyle(FontWeight.Medium, 11.sp, 16.sp),
 )
+
+/** Semantic POS typography tokens for financial displays, tables, and operational hierarchy. */
+object PosType {
+    val screenTitle = interStyle(FontWeight.Bold, 22.sp, 28.sp)
+    val sectionHeading = interStyle(FontWeight.SemiBold, 16.sp, 22.sp)
+    val cardTitle = interStyle(FontWeight.SemiBold, 15.sp, 20.sp)
+    val bodyPrimary = interStyle(FontWeight.Normal, 14.sp, 20.sp)
+    val bodySecondary = interStyle(FontWeight.Normal, 12.sp, 18.sp)
+    val inputLabel = interStyle(FontWeight.Medium, 13.sp, 18.sp)
+    val buttonLabel = interStyle(FontWeight.SemiBold, 14.sp, 20.sp)
+    val tableHeader = interStyle(FontWeight.SemiBold, 12.sp, 16.sp)
+    val monetaryAmount = interStyle(FontWeight.Bold, 16.sp, 22.sp)
+    val transactionTotal = interStyle(FontWeight.Bold, 26.sp, 32.sp)
+    val dialogTitle = interStyle(FontWeight.Bold, 18.sp, 24.sp)
+    val errorMessage = interStyle(FontWeight.Medium, 13.sp, 18.sp)
+}

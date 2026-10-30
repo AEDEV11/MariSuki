@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path name="end_shift_reports" path="EndShiftReport/" />
+    <external-files-path name="external_end_shift_reports" path="Documents/EndShiftReport/" />
+    <external-path name="public_documents" path="Documents/EndShiftReport/" />
+</paths>
+

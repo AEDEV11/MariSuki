@@ -29,6 +29,13 @@
     <string name="sale_channel_label">Uri ng benta</string>
     <string name="sale_channel_tingi">Tingi</string>
     <string name="sale_channel_wholesale">Pakyawan</string>
+    <string name="sale_channel_mixed">Tingi + Pakyawan</string>
+    <string name="sale_channel_multi_hint">Piliin ang dalawa kung may tingi at pakyawan sa binili ng customer.</string>
+    <string name="reference_number">Reference no.</string>
+    <string name="reference_number_required">Reference number *</string>
+    <string name="reference_number_help_gcash">Kailangan. Kopyahin ang reference number mula sa GCash receipt ng customer.</string>
+    <string name="reference_number_help_maya">Kailangan. Kopyahin ang reference number mula sa Maya receipt ng customer.</string>
+    <string name="utang_amount">Halaga ng utang</string>
     <string name="method_cash">Cash</string>
     <string name="method_gcash">GCash</string>
     <string name="method_maya">Maya</string>
@@ -536,4 +543,9 @@
     <string name="bulk_whole_only">Buong bilang lamang sa stock</string>
     <string name="bulk_fractions_allowed">Pinapayagan ang decimal na dami sa stock</string>
     <string name="catalog_selling_unit_label">Yunit sa pagbebenta</string>
+    <string name="receipt_preview_title">Preview ng Resibo</string>
+    <string name="receipt_preview_subtitle">Suriin ang detalye ng resibo bago tapusin ang bentahan.</string>
+    <string name="checkout_print_and_complete">I-print at Tapusin</string>
+    <string name="checkout_complete_without_print">Tapusin nang Walang Print</string>
+    <string name="receipt_thank_you">Maraming salamat po!</string>
 </resources>

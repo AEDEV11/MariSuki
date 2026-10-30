@@ -9,10 +9,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import com.aesprt.marisuki.ui.components.ToolCard as Card
+import com.aesprt.marisuki.ui.components.ToolIcon
 import com.aesprt.marisuki.ui.components.ToolSectionHeader
 import com.aesprt.marisuki.ui.components.ToolDialog as ModernDialog
+import com.aesprt.marisuki.ui.theme.PosRadius
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.CircularProgressIndicator
@@ -60,21 +63,17 @@ fun DebugDeveloperTools() {
                 Text("These are debug fixtures only; never use them for a real store.", color = MaterialTheme.colorScheme.error)
             }
         }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { runAction("Demo products checked.") { DemoDataInstaller.reseedProducts() } }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Re-seed products") }
-            OutlinedButton(onClick = { runAction("Sample transactions are present.") { DemoDataInstaller.createSampleTransactions() } }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sample transactions") }
-        }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { runAction("Stock set below the low-stock threshold.") { DemoDataInstaller.setLowStockTestState(false) } }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test low stock") }
-            OutlinedButton(onClick = { runAction("Demo product set out of stock.") { DemoDataInstaller.setLowStockTestState(true) } }, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test out of stock") }
-        }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { DebugPrintSimulation.simulateDisconnection(); status = "The next print action will simulate a disconnected printer." }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Printer disconnected") }
-            OutlinedButton(onClick = { DebugPrintSimulation.simulatePrintFailure(); status = "The next print action will simulate a print failure." }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Print failure") }
-        }
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = { showEmptyPreview = !showEmptyPreview }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test empty state") }
-            OutlinedButton(onClick = { status = "Sign in as Ana to verify that utang permissions are denied." }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Permission denied") }
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { runAction("Demo products checked.") { DemoDataInstaller.reseedProducts() } }, enabled = !busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Re-seed products") }
+                OutlinedButton(onClick = { runAction("Sample transactions are present.") { DemoDataInstaller.createSampleTransactions() } }, enabled = !busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Sample transactions") }
+                OutlinedButton(onClick = { runAction("Stock set below the low-stock threshold.") { DemoDataInstaller.setLowStockTestState(false) } }, enabled = !busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test low stock") }
+                OutlinedButton(onClick = { runAction("Demo product set out of stock.") { DemoDataInstaller.setLowStockTestState(true) } }, enabled = !busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test out of stock") }
+                OutlinedButton(onClick = { DebugPrintSimulation.simulateDisconnection(); status = "The next print action will simulate a disconnected printer." }, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Printer disconnected") }
+                OutlinedButton(onClick = { DebugPrintSimulation.simulatePrintFailure(); status = "The next print action will simulate a print failure." }, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Print failure") }
+                OutlinedButton(onClick = { showEmptyPreview = !showEmptyPreview }, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Test empty state") }
+                OutlinedButton(onClick = { status = "Sign in as Ana to verify that utang permissions are denied." }, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Permission denied") }
+            }
         }
         Card(Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -83,7 +82,7 @@ fun DebugDeveloperTools() {
                 Text("Debug printer controls simulate errors before Android PrintManager; they do not verify Bluetooth or USB hardware.", style = MaterialTheme.typography.bodySmall)
             }
         }
-        Button(onClick = { confirmReset = true }, enabled = !busy, modifier = Modifier.fillMaxWidth()) { Text("Reset demo data") }
+        Button(onClick = { confirmReset = true }, enabled = !busy, shape = PosRadius.button, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Reset demo data") }
         if (busy) CircularProgressIndicator()
         Text(status, color = MaterialTheme.colorScheme.primary)
         if (showEmptyPreview) Card(Modifier.fillMaxWidth()) {
@@ -95,10 +94,11 @@ fun DebugDeveloperTools() {
     }
     if (confirmReset) ModernDialog(
         onDismissRequest = { confirmReset = false },
+        icon = { ToolIcon(Icons.Default.Warning) },
         title = { Text("Reset demo data?") },
         text = { Text("This clears only the isolated debug demo database. It is available only when the stored profile is MariSuki Demo Grocery.") },
         confirmButton = {
-            TextButton(onClick = { confirmReset = false; runAction("Demo data reset and reseeded.") { DemoDataInstaller.resetDemoData() } }) { Text("Reset demo") }
+            Button(onClick = { confirmReset = false; runAction("Demo data reset and reseeded.") { DemoDataInstaller.resetDemoData() } }, shape = PosRadius.button) { Text("Reset demo") }
         },
         dismissButton = { TextButton(onClick = { confirmReset = false }) { Text("Cancel") } },
     )
